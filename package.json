@@ -1,0 +1,69 @@
+{
+  "name": "tokenscope",
+  "productName": "TokenScope",
+  "version": "1.0.0",
+  "description": "See what your AI coding costs before and after: estimate planned jobs, measure their real cost, and track usage across Claude Code, Codex, Cursor and OpenCode so your AI can suggest how to spend less.",
+  "keywords": [
+    "ai",
+    "llm",
+    "claude",
+    "claude-code",
+    "cursor",
+    "codex",
+    "opencode",
+    "mcp",
+    "token-usage",
+    "cost-tracking",
+    "openrouter",
+    "electron"
+  ],
+  "author": {
+    "name": "Tomas Wallin"
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "main.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "electron .",
+    "test": "node src/estimate.test.js && node src/claudelogs.test.js && node src/history.test.js && node src/insights.test.js && node src/codexlogs.test.js && node src/archive.test.js && node src/opencode-wsl.test.js",
+    "dist": "electron-builder --win nsis",
+    "dist:portable": "electron-builder --win portable"
+  },
+  "dependencies": {
+    "fzstd": "0.1.1",
+    "sql.js": "1.12.0"
+  },
+  "devDependencies": {
+    "electron": "33.2.0",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "com.tomaswallin.tokenscope",
+    "productName": "TokenScope",
+    "copyright": "Copyright © 2026 Tomas Wallin",
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**",
+      "renderer/**",
+      "data/**",
+      "build/icon.png"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "TokenScope",
+      "runAfterFinish": true,
+      "artifactName": "TokenScope-Setup-${version}.exe"
+    }
+  }
+}

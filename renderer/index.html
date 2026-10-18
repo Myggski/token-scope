@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'">
+  <title>TokenScope</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="wrap">
+    <header class="top">
+      <div>
+        <h1>TokenScope</h1>
+        <p class="sub">Current prices for AI models from <a href="https://openrouter.ai/models" target="_blank">OpenRouter</a>, and what your AI work really costs.</p>
+      </div>
+      <div class="status-box">
+        <div class="top-buttons">
+          <button id="theme" class="button ghost" type="button">Light mode</button>
+          <button id="refresh" class="button" type="button">Refresh</button>
+        </div>
+        <span id="status" class="status">Loading…</span>
+      </div>
+    </header>
+
+    <div id="notices" class="notices" role="status" aria-live="polite"></div>
+
+    <nav class="tabs" role="tablist" aria-label="Views">
+      <button id="tab-models" class="tab" role="tab" type="button" aria-controls="view-models" data-view="models">Models</button>
+      <button id="tab-jobs" class="tab" role="tab" type="button" aria-controls="view-jobs" data-view="jobs">Plans <span id="jobCount" class="tab-count"></span></button>
+      <button id="tab-history" class="tab" role="tab" type="button" aria-controls="view-history" data-view="history">Spending</button>
+      <button id="tab-help" class="tab" role="tab" type="button" aria-controls="view-help" data-view="help">Settings &amp; help</button>
+      <span id="tabIndicator" class="tab-indicator" aria-hidden="true"></span>
+    </nav>
+
+    <!-- ========== Models ========== -->
+    <div id="view-models" class="view" role="tabpanel" aria-labelledby="tab-models">
+      <section class="chips" id="providers" aria-label="Providers"></section>
+
+      <section>
+        <h2 class="visually-hidden">Models</h2>
+        <div class="controls">
+          <div class="control-row">
+            <div class="seg" role="group" aria-label="Sort by">
+              <button type="button" data-sort="buck">Best for the buck</button>
+              <button type="button" data-sort="cost">Cheapest</button>
+              <button type="button" data-sort="newest">Newest</button>
+            </div>
+            <input id="search" class="search" type="search" placeholder="Search models" aria-label="Search models" spellcheck="false">
+          </div>
+          <p id="sortNote" class="sort-note" aria-live="polite"></p>
+          <div class="control-row">
+            <div class="min">
+              <label for="tokens">Token budget</label>
+              <span class="info left" tabindex="0" role="img" data-tip="How many tokens you expect to use, for example in a day or a month. Est. spend shows what that would cost on each model."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/></svg></span>
+              <input id="tokens" type="text" value="1M" placeholder="e.g. 1.5M" spellcheck="false" aria-describedby="tokensHint">
+              <span class="presets" role="group" aria-label="Token presets">
+                <button class="chip preset" type="button" data-tokens="500k">500k</button>
+                <button class="chip preset" type="button" data-tokens="1M">1M</button>
+                <button class="chip preset" type="button" data-tokens="3M">3M</button>
+              </span>
+              <span id="tokensHint" class="hint" aria-live="polite"></span>
+            </div>
+          </div>
+        </div>
+        <div class="tablebox">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th class="fav-col"><span class="visually-hidden">Favorite</span></th>
+                <th>Model <span class="info left" tabindex="0" role="img" data-tip="Under the name: who makes it, when it came out, and how much text it can read at once (its context). A warning shows if the model is being shut down."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/></svg></span></th>
+                <th class="num">Price / 1M <span class="info right" tabindex="0" role="img" data-tip="Price per million tokens: reading (input) / writing (output). Under it: the cheaper price for text the model read recently (cached)."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/></svg></span></th>
+                <th class="num">Est. spend <span class="info right" tabindex="0" role="img" data-tip="What your token budget would cost on this model, counting 3 tokens read for every token written. Under it: the reading and writing parts."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/></svg></span></th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+        <div class="list-footer">
+          <p id="count" class="count"></p>
+          <button id="showMore" class="button ghost" type="button" hidden>Show more</button>
+        </div>
+      </section>
+    </div>
+
+    <!-- ========== Plans (internally "jobs") ========== -->
+    <div id="view-jobs" class="view" role="tabpanel" aria-labelledby="tab-jobs" hidden>
+      <section id="jobsSection">
+        <h2 class="visually-hidden">Plans</h2>
+        <p class="intro">Estimate a task before you start, then compare the estimate with what it really cost. Use Plans to decide which model to use and how much to budget.</p>
+        <p id="jobsSummary" class="intro"></p>
+        <div class="tablebox">
+          <table class="compact">
+            <thead>
+              <tr>
+                <th>Plan</th>
+                <th class="num">Estimated <span class="info right" tabindex="0" role="img" data-tip="What your AI estimated before starting, on the planned model. Under it: the range from a smooth run to a rough one. Budget for the high end."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/></svg></span></th>
+                <th class="num">Real cost <span class="info right" tabindex="0" role="img" data-tip="What the task really cost, measured automatically while it runs. Exact for Claude Code, Codex and OpenCode, approximate for Cursor (with Cursor turned on under Track AI spending). Other tools, like Claude Desktop, only get an estimate."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/></svg></span></th>
+                <th><span class="visually-hidden">Delete</span></th>
+              </tr>
+            </thead>
+            <tbody id="jobRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+
+
+    </div>
+
+    <!-- ========== Spending (internally "history") ========== -->
+    <div id="view-history" class="view" role="tabpanel" aria-labelledby="tab-history" hidden>
+      <section id="historyOn">
+        <h2 class="visually-hidden">Spending</h2>
+        <p class="intro history-intro">See what every tracked AI conversation cost, whether you planned it or not. Explore your spending over time, find out what made conversations expensive, and ask your AI how to spend less.</p>
+        <div id="historyTotals" class="tiles totals"></div>
+        <div id="historyTools" class="chips" role="radiogroup" aria-label="Show tool"></div>
+        <div id="historyProviders" class="chips" role="radiogroup" aria-label="Show models from"></div>
+        <div class="tablebox">
+          <table class="compact history-table">
+            <thead>
+              <tr>
+                <th>Conversation</th>
+                <th class="num">Cost <span class="info right" tabindex="0" role="img" data-tip="At today's pay-per-token prices. With a subscription, it's what the work would have cost. ≈ means approximate, as for Cursor."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/></svg></span></th>
+              </tr>
+            </thead>
+            <tbody id="historyRows"></tbody>
+          </table>
+        </div>
+        <div class="list-footer">
+          <p id="historyCount" class="count"></p>
+          <button id="historyMore" class="button ghost" type="button" hidden>Show more</button>
+        </div>
+        <p id="historyErrors" class="hint error"></p>
+      </section>
+    </div>
+
+    <!-- ========== Settings & help ========== -->
+    <div id="view-help" class="view" role="tabpanel" aria-labelledby="tab-help" hidden>
+      <section id="connect" class="your-data" aria-labelledby="connectTitle">
+        <h2 id="connectTitle">Connect your AI tool <span class="used-by">For Plans</span></h2>
+        <p class="intro">Connect TokenScope to the AI tools you use. Your AI can then estimate a task before starting, and TokenScope tracks what it really costs. Set up each tool once.</p>
+        <ul id="aiTools" class="data-actions tool-list"></ul>
+        <p class="hint list-hint">Using ChatGPT? ChatGPT itself can't connect to programs on your computer. Use Codex or OpenCode instead: both can sign in with your ChatGPT account.</p>
+        <p class="notice move-notice"><span aria-hidden="true">⚠</span> Your AI finds TokenScope through its folder location. If you move TokenScope, reconnect your AI tools here so they can find it again.</p>
+      </section>
+
+      <section class="your-data" aria-labelledby="trackingTitle">
+        <h2 id="trackingTitle">Track AI spending <span class="used-by">For Spending</span></h2>
+        <p class="intro">Choose which AI tools appear in Spending. TokenScope reads the usage records these tools already save, so most tools need no extra setup.</p>
+        <ul id="trackingSources" class="data-actions tracking-list"></ul>
+        <ul class="data-actions keep-list">
+          <li><div><strong><label for="historyKeep">Keep spending history for</label></strong><span>Choose how long TokenScope keeps your spending history. This controls the history TokenScope saves. Claude Code deletes its own records after 30 days, so TokenScope can keep your spending summaries for longer.</span></div>
+            <select id="historyKeep">
+              <option value="30">30 days</option>
+              <option value="90">90 days</option>
+              <option value="365">1 year</option>
+              <option value="0">Forever</option>
+            </select></li>
+        </ul>
+      </section>
+
+      <section class="your-data" aria-labelledby="dataTitle">
+        <h2 id="dataTitle">Your data</h2>
+        <div class="data-folder"><span>Saved on this computer in</span> <code id="dataFolder"></code><button id="openData" class="soft-button" type="button">Open folder</button></div>
+        <ul class="data-actions">
+          <li><div><strong>Clear price cache</strong><span>Removes saved prices so TokenScope fetches fresh prices from OpenRouter. Use this if prices look out of date.</span></div><button class="soft-button" type="button" data-clear="prices">Clear</button></li>
+          <li><div><strong>Reset settings</strong><span>Resets your filters, sorting, token budget, search and theme to their defaults. Your favorites and plans are kept.</span></div><button class="soft-button" type="button" data-clear="settings">Reset</button></li>
+          <li><div><strong>Clear favorites</strong><span>Removes all your starred models.</span></div><button class="danger-button" type="button" data-clear="favorites">Clear</button></li>
+          <li><div><strong>Delete saved spending history</strong><span>Deletes the spending data TokenScope has saved, including the Cursor hook's recorded usage and copies of older conversation summaries. Claude Code, Codex and OpenCode keep their own records, which will still appear in Spending if those tools are tracked. To hide a tool from Spending, turn it off under Track AI spending instead.</span></div><button class="danger-button" type="button" data-clear="history">Delete</button></li>
+          <li><div><strong>Delete all plans</strong><span>Deletes every plan, including its cost estimates and real costs.</span></div><button class="danger-button" type="button" data-clear="jobs">Delete</button></li>
+          <li><div><strong>Delete everything</strong><span>Resets TokenScope as if you had just installed it. This removes your saved data, turns off tracking and removes the Cursor hook.</span></div><button class="danger-button" type="button" data-clear="all">Delete everything</button></li>
+        </ul>
+      </section>
+
+      <section aria-labelledby="helpTitle">
+        <h2 id="helpTitle">Help</h2>
+        <div class="help-groups">
+        <details class="connect help-group" id="help-prices">
+          <summary><h2>Prices and models</h2><span class="summary-hint">Where prices come from, how sorting works and how to compare models</span></summary>
+          <div class="notes help-body">
+            <h3>Where do prices come from?</h3>
+            <p>TokenScope gets prices from OpenRouter, which collects pricing information from AI providers and updates it as prices change.</p>
+            <p>These are pay-per-token prices. If you use a fixed-price subscription, your plan's usage limits may matter more than these prices.</p>
+            <h3>How does Cheapest work?</h3>
+            <p>Sorts models by estimated cost, counting three tokens read for every token written. This is a rough estimate of the balance between reading and writing during coding work.</p>
+            <h3>How does Best for the buck work?</h3>
+            <p>Balances price and release date equally. Newer models and cheaper models rank higher.</p>
+            <p>Newer models aren't always better, so use this ranking as a starting point, not a guarantee.</p>
+            <h3>Why is there no quality score?</h3>
+            <p>There isn't a free quality score that covers most of these models. DeepSWE's coding scores are outdated and cover only a few models. OpenRouter has scores for only a small selection, too.</p>
+            <p>Using these scores would favor models that happen to have been tested. The best way to judge a model is to try it on your own work.</p>
+            <h3>What are favorites for?</h3>
+            <p>Star the models you use regularly. The Favorites filter shows only those models, and your AI uses them when estimating a task unless you choose other models.</p>
+            <h3>What does the warning under a model mean?</h3>
+            <p>The provider plans to shut down the model on the date shown. Avoid relying on it for work that needs to continue after that date.</p>
+          </div>
+        </details>
+        <details class="connect help-group" id="help-estimates">
+          <summary><h2>Plans</h2><span class="summary-hint">Task estimates, unexpected costs and real spending</span></summary>
+          <div class="notes help-body">
+            <h3>How do I get an estimate?</h3>
+            <p>Before starting a task, ask your AI to plan it with TokenScope. For example:</p>
+            <p>"Plan this first, estimate the cost with TokenScope using Opus 5.5 and Sonnet 5.5, and wait for my go-ahead."</p>
+            <p>Your AI plans the work without making changes, estimates the cost for each model and waits for your approval.</p>
+            <p>If you don't name any models, TokenScope uses your favorites. You can change the models later in the plan's Details.</p>
+            <h3>How are plans estimated?</h3>
+            <p>Your AI describes the work it expects to do, including how many steps it might take, how much text it will read and how much it will write.</p>
+            <p>TokenScope uses that information to estimate the cost for each model.</p>
+            <h3>What does the cost range mean?</h3>
+            <p>The low end assumes the task goes smoothly, without needing fixes. The high end allows for 50% more steps.</p>
+            <p>Use the high end when setting your budget. Tasks that require more fixes can cost more than the estimate.</p>
+            <h3>What are cache misses?</h3>
+            <p>AI tools can reuse recently read conversation text at a lower price. If that text can no longer be reused, the AI has to pay the full price to read it again. This is called a cache miss.</p>
+            <p>It can happen after you've been away for a few minutes, after a long build, when you switch models or when you start a new conversation. These extra reading costs can add up.</p>
+            <p>Quick back-and-forth with your AI doesn't cause cache misses by itself.</p>
+            <h3>How are real costs measured?</h3>
+            <p>TokenScope measures costs automatically as you work. A plan's real cost counts everything from the estimate until your AI says the task is done, or until another plan starts in the same conversation.</p>
+            <p>Claude Code, Codex and OpenCode report exact token counts, so their costs are exact. Cursor costs are approximate because it doesn't report exact token usage, and they're only measured when Cursor is turned on under Track AI spending.</p>
+            <p>Other tools only get estimates.</p>
+            <h3>Is there a shortcut for estimates?</h3>
+            <p>Some AI tools offer a shortcut for asking TokenScope to estimate a task.</p>
+            <ul>
+              <li><strong>Claude Code:</strong> Type <code>/mcp__tokenscope__estimate</code> followed by your task.</li>
+              <li><strong>Cursor:</strong> Type <code>/estimate</code>.</li>
+              <li><strong>Claude Desktop:</strong> Open the + menu, select TokenScope, then choose Plan and estimate.</li>
+            </ul>
+            <p>You can also ask in your own words. That works across all supported tools.</p>
+            <h3>Do estimates get better over time?</h3>
+            <p>Yes. Once two plans have real costs, TokenScope starts adjusting new estimates based on how far previous estimates were from the real costs.</p>
+          </div>
+        </details>
+        <details class="connect help-group" id="help-history">
+          <summary><h2>Spending</h2><span class="summary-hint">Tracked conversations, cost breakdowns and ways to save</span></summary>
+          <div class="notes help-body">
+            <h3>What does Spending show?</h3>
+            <p>Every conversation from the AI tools you've chosen to track, whether you planned it or not.</p>
+            <p>You can see what each conversation cost, which models it used and what contributed to the cost.</p>
+            <p>When you use more than one tool, or models from more than one maker, you can filter by them. The maker filter shows what each one cost, like Anthropic's Claude or OpenAI's GPT, so you can compare them. With one maker picked, conversations count only the part done on its models.</p>
+            <h3>What would a conversation have cost on another model?</h3>
+            <p>Open a conversation's Details. Under On other models, TokenScope prices the same tokens on your favorite models, or on models you add there, and shows how much cheaper or more expensive each would have been.</p>
+            <p>It's a rough comparison: another model would also work differently and take a different number of steps.</p>
+            <h3>How do I get suggestions?</h3>
+            <p>Ask your AI something like:</p>
+            <p>"What made my AI work expensive this week, and how can I spend less?"</p>
+            <p>Your AI can use your spending data to answer once TokenScope is connected to your AI tool under Connect your AI tool.</p>
+            <h3>How do I set it up?</h3>
+            <p>Turn on the tools you want to track under Track AI spending.</p>
+            <p>Claude Code, Codex and OpenCode need no extra setup. TokenScope reads their existing usage records.</p>
+            <p>For Cursor, turning on tracking adds a small hook to Cursor's settings. Turning it off removes that hook. Cursor applies the change automatically, so no restart is needed.</p>
+            <p>If your Cursor spending doesn't appear after you've used it, restart Cursor once.</p>
+            <h3>How accurate are the costs?</h3>
+            <p>Claude Code, Codex and OpenCode report exact token counts, so their costs are exact.</p>
+            <p>Cursor doesn't report exact token counts. TokenScope works out its costs from the size of each step. These costs are marked with ≈ to show they're approximate.</p>
+            <p>Costs use today's prices, except for older conversations a tool no longer keeps, which keep the prices from when TokenScope saved them.</p>
+            <h3>Why is a conversation missing?</h3>
+            <p>Spending only shows the tools turned on under Track AI spending, and only work done on this computer. Claude Code in the cloud or in a browser, Claude Desktop and ChatGPT keep no records here. Cursor conversations show up from when you turned Cursor on. Tools inside WSL are read only while WSL is running. And Spending only goes back as far as Keep spending history for.</p>
+            <h3>What does the Cursor hook save?</h3>
+            <p>It saves usage details: how much text each step read and wrote, which model was used, when it happened, and whether a step was a build or a test.</p>
+            <p>It also saves a scrambled identifier for your Cursor account, not your email address.</p>
+            <p>It never saves your code, prompts, commands or the AI's replies.</p>
+          </div>
+        </details>
+        <details class="connect help-group" id="help-data">
+          <summary><h2>Your data and privacy</h2><span class="summary-hint">What TokenScope saves, what it reads and what happens when you move or uninstall it</span></summary>
+          <div class="notes help-body">
+            <h3>What's saved?</h3>
+            <p>Everything is stored in the folder shown under Your data.</p>
+            <ul>
+              <li><strong><code>tokenscope-data.json</code></strong> stores your plans, favorites and settings. Copy this file to back them up.</li>
+              <li><strong>The <code>history</code> folder</strong> stores usage recorded by the Cursor hook and summaries of conversations shown in Spending. These summaries contain costs, models and cost breakdowns, not the conversations themselves.</li>
+              <li><strong>Other files</strong> are used by TokenScope to run the app.</li>
+            </ul>
+            <p>TokenScope saves conversation summaries so your spending history can last longer than the original records. For example, Claude Code deletes its own records after 30 days.</p>
+            <h3>What does TokenScope read?</h3>
+            <p>TokenScope reads the usage records already saved by Claude Code, Codex and OpenCode, but only for the tools you've turned on under Track AI spending.</p>
+            <p>It doesn't copy those records. It saves summaries of the conversations for Spending instead.</p>
+            <p>Claude Code's records are normally stored in <code id="claudeLogs"></code>. Codex's records are normally stored in <code id="codexLogs"></code>.</p>
+            <p>If you run these tools inside WSL, TokenScope can also read their records there while WSL is running.</p>
+            <h3>Does anything leave my computer?</h3>
+            <p>TokenScope sends requests to OpenRouter to get model prices. These requests don't include information about you or your work.</p>
+            <h3>What does "data mismatch" mean?</h3>
+            <p>A source, such as OpenRouter or Cursor, has provided data that TokenScope doesn't recognize. This can happen when the source changes its data format.</p>
+            <p>The warning tells you which source is affected. Costs from that source may be incorrect until TokenScope is updated.</p>
+            <h3>What's remembered between launches?</h3>
+            <p>TokenScope remembers your favorites, filters, sorting, token budget, search and theme.</p>
+            <p>It always opens on Models, with sections collapsed.</p>
+            <p>To reset these settings, use Reset settings under Your data.</p>
+            <h3>What if I move TokenScope?</h3>
+            <p>Your AI tools and the Cursor hook find TokenScope through its folder location. Moving it can break those connections, but your saved data isn't affected.</p>
+            <p>After moving TokenScope, reconnect your AI tools under Connect your AI tool. If you use Cursor tracking, turn it off and on again under Track AI spending.</p>
+            <h3>What if I uninstall TokenScope?</h3>
+            <p>Turn off Cursor tracking first so TokenScope removes the Cursor hook.</p>
+            <p>Your data folder stays on your computer after you uninstall the app.</p>
+          </div>
+        </details>
+        </div>
+      </section>
+    </div>
+  </main>
+  <!-- Snackbars: short messages after an action, at the bottom, over the page. -->
+  <div id="snackbars" class="snackbars" role="status" aria-live="polite"></div>
+  <script src="../src/models.js"></script>
+  <script src="../src/estimate.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
