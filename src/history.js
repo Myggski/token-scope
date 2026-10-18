@@ -621,7 +621,9 @@ function checkCursorRecords(records, checks) {
 // startContext: what the conversation already held when the records start (see startOffset).
 function replayCursor(records, onRequest, { startContext = CURSOR.baseContext } = {}) {
   let context = startContext, sent = 0, generation = null, pendingThought = 0, lastRequest = null, model = null;
-  const edits = records.filter((r) => r.e === "afterFileEdit"); // the changed text, from newer hooks
+  // The changed text, from newer hooks. One that saw no edits (Cursor sending other fields than
+  // expected) is ignored, so the edit falls back to the guess instead of counting as nothing.
+  const edits = records.filter((r) => r.e === "afterFileEdit" && r.edits > 0 && (r.out || 0) + (r.del || 0) > 0);
   const used = new Set();
   // An edit's real size: the matching afterFileEdit step if there is one, else the reported
   // input, unless that's Cursor reporting the whole file.
