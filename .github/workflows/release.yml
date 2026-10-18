@@ -30,10 +30,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="v$(node -p "require('./package.json').version")"
+          ls dist
+          set +e
           gh release create "$version" dist/TokenScope-Setup-*.exe \
+            --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "TokenScope ${version#v}" \
-            --notes-file .github/release-notes.md
+            --notes-file .github/release-notes.md > publish.log 2>&1
+          code=$?
+          cat publish.log
+          if [ $code -ne 0 ]; then sed 's/^/::error::/' publish.log; fi
+          exit $code
 
   test:
     runs-on: windows-latest
