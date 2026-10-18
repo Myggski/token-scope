@@ -340,6 +340,12 @@ if (MCP_MODE) {
 app.whenReady().then(() => {
   if (MCP_MODE) return startMcpMode();
   store = createStore(dataFile(app.getPath("userData")));
+  // So older copies of the MCP program, still running in an AI tool, leave costs to this version.
+  try {
+    if (store.read().appVersion !== app.getVersion()) store.update((data) => { data.appVersion = app.getVersion(); });
+  } catch (error) {
+    console.error("Saving the version failed:", error.message);
+  }
   // A test build hid History before a date ("historyFrom"); that's gone, so History shows it all again.
   if (store.read().historyFrom) store.update((data) => { delete data.historyFrom; });
   startWindowApp();

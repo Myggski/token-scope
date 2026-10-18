@@ -80,11 +80,22 @@ async function getModels() {
   return models;
 }
 
+const VERSION = (readJson(path.join(__dirname, "..", "package.json")) || {}).version || "1.0.0";
+// Your AI tool keeps this program running across TokenScope updates. Once a newer TokenScope has
+// opened, this older copy stops measuring costs, so its older way of reading can't overwrite
+// the newer numbers. It still answers with what the newer one saved.
+const newer = (a, b) => {
+  const x = String(a || "0").split(".").map(Number), y = String(b || "0").split(".").map(Number);
+  for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+  return false;
+};
+
 startMcp({
   store,
   getModels,
-  version: (readJson(path.join(__dirname, "..", "package.json")) || {}).version || "1.0.0",
+  version: VERSION,
   sync: async () => {
+    if (newer(store.read().appVersion, VERSION)) return;
     try {
       await syncActuals(store, await getModels());
     } catch (error) {
