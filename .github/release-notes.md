@@ -1,14 +1,14 @@
-**Download** `TokenScope-Setup-1.0.3.exe` below and run it. It updates TokenScope in place, and your data stays.
+**Download** `TokenScope-Setup-1.0.4.exe` below and run it. It updates TokenScope in place, and your data stays.
 
 Windows may show "Windows protected your PC" because the installer isn't code-signed yet. Choose **More info**, then **Run anyway**.
 
-**Fixed (Cursor)**
-- **Much closer real costs:** Cursor costs were often far too high, sometimes 20×, because Cursor reports the whole file on every edit. TokenScope now records how much an edit really changed, and prices summarizing the way Cursor bills it. Compared with Cursor's own usage page, costs are now usually within about 15%.
-- **Older plans corrected:** Cursor plans from the last 30 days are measured again with the new reading.
-- **Estimates:** approximate costs, like Cursor's, no longer adjust future estimates. Only exact ones do.
-- The Cursor hook picks up the new step by itself. No need to turn Cursor off and on.
+**Cursor**
+- **Chat names:** Spending shows Cursor's own chat names instead of "Cursor conversation".
+- **Closer real costs:** TokenScope now uses Cursor's own count of how big each chat was, and counts tool calls Cursor runs together as one request. Against Cursor's usage page, costs came out within about 15% per conversation and 2% in total.
+- TokenScope reads only each chat's name and size from Cursor's data on your computer, without changing it.
 
-**New**
-- A plan's Details show its real cost by model.
+**Also**
+- After an update, an older copy of TokenScope still running inside your AI tool no longer overwrites the newer costs.
+- Built on a newer Electron (37).
 
-Cursor costs are still marked ≈. Cursor's usage page has the exact amounts.
+After updating, restart Cursor once so it uses the new version.
