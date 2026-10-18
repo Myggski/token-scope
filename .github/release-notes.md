@@ -1,11 +1,14 @@
-**Download** `TokenScope-Setup-1.0.2.exe` below and run it. It updates TokenScope in place, and your data stays.
+**Download** `TokenScope-Setup-1.0.3.exe` below and run it. It updates TokenScope in place, and your data stays.
 
 Windows may show "Windows protected your PC" because the installer isn't code-signed yet. Choose **More info**, then **Run anyway**.
 
 **Fixed (Cursor)**
-- **Helper agents:** when your AI in Cursor starts a helper, Cursor gives it a conversation of its own. It's now counted as part of the conversation that started it, and of its plan, instead of showing as a separate conversation.
-- **Thinking counted twice:** Cursor reports each thinking step twice. It's now counted once, and no longer looks like you writing a new message.
-- **Models with an effort level:** names like `gemini-3.7-flash-low` (the model Cursor uses to summarize long conversations) now get a price.
-- **Project names:** Cursor conversations show their project folder, also for chats that started before tracking was on.
+- **Much closer real costs:** Cursor costs were often far too high, sometimes 20×, because Cursor reports the whole file on every edit. TokenScope now records how much an edit really changed, and prices summarizing the way Cursor bills it. Compared with Cursor's own usage page, costs are now usually within about 15%.
+- **Older plans corrected:** Cursor plans from the last 30 days are measured again with the new reading.
+- **Estimates:** approximate costs, like Cursor's, no longer adjust future estimates. Only exact ones do.
+- The Cursor hook picks up the new step by itself. No need to turn Cursor off and on.
 
-Your existing Cursor records are read the new way too, so no data is lost.
+**New**
+- A plan's Details show its real cost by model.
+
+Cursor costs are still marked ≈. Cursor's usage page has the exact amounts.
