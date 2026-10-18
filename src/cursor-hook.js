@@ -41,6 +41,10 @@ function record(input) {
   const r = { t: Date.now(), e, c: input.conversation_id || input.session_id || null, gen: input.generation_id || null, model: input.model_id || input.model || null };
   const acct = account(input.user_email);
   if (acct) r.acct = acct;
+  // The project folder's name (never the path), on every step: a chat continued from before
+  // tracking was on has no sessionStart step to take it from.
+  const root = Array.isArray(input.workspace_roots) && input.workspace_roots[0];
+  if (root) r.project = String(root).split(/[\\/]+/).filter(Boolean).pop() || null;
   if (e === "postToolUse") {
     r.tool = input.tool_name;
     r.in = size(input.tool_input);
@@ -60,8 +64,7 @@ function record(input) {
   } else if (e === "preCompact") {
     r.ctx = input.context_tokens || null;
   } else if (e === "sessionStart") {
-    const root = (input.workspace_roots || [])[0];
-    if (root) r.project = path.basename(root); // the folder name only
+    // The project is noted above, as on every step.
   } else if (e === "afterMCPExecution") {
     // Only TokenScope's own job tools are noted, to link this conversation to the job.
     const action = JOB_TOOLS[input.tool_name];

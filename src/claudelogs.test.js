@@ -3,10 +3,16 @@ const assert = require("assert");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { findActuals, modelKey } = require("./claudelogs");
+const { findActuals, modelKey, findPricedModel } = require("./claudelogs");
 
 assert.strictEqual(modelKey("anthropic/claude-opus-5.5"), modelKey("claude-opus-5-5"));
 assert.strictEqual(modelKey("anthropic/claude-3.5-sonnet"), modelKey("claude-3-5-sonnet-20241022"));
+// Effort levels and thinking that tools add to the name (Cursor) are taken off when nothing else matches.
+const priced = [{ id: "google/gemini-3.7-flash" }, { id: "anthropic/claude-sonnet-5.5" }, { id: "x/model-high" }];
+assert.strictEqual(findPricedModel(priced, "gemini-3.7-flash-low").id, "google/gemini-3.7-flash");
+assert.strictEqual(findPricedModel(priced, "claude-sonnet-5-5-thinking-high").id, "anthropic/claude-sonnet-5.5");
+assert.strictEqual(findPricedModel(priced, "model-high").id, "x/model-high", "an exact match wins");
+assert.strictEqual(findPricedModel(priced, "gemini-9-pro-low"), null);
 
 const folder = fs.mkdtempSync(path.join(os.tmpdir(), "ts-logs-"));
 const project = path.join(folder, "-work-app");

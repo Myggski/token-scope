@@ -52,9 +52,18 @@ async function listLogs(folder, since, depth = 0, found = []) {
 // "anthropic/claude-opus-5.5" and "claude-opus-5-5" (or "claude-opus-5-5-20261001") match.
 const modelKey = (name) => String(name).toLowerCase().replace(/^.*\//, "").replace(/[.:_]/g, "-").replace(/-\d{8}$/, "").replace(/-latest$/, "");
 
+// Tools add settings to model names that aren't part of the model: Cursor writes
+// "gemini-3.7-flash-low" or "claude-sonnet-5-5-thinking-high" for an effort level or thinking.
+// Without an exact match, those endings are taken off one at a time.
+const SETTING = /-(minimal|low|medium|high|xhigh|max|thinking|fast|nothink|reasoning)$/;
+
 function findPricedModel(models, logModel) {
-  const key = modelKey(logModel);
-  return models.find((m) => modelKey(m.id) === key) || null;
+  let key = modelKey(logModel);
+  for (;;) {
+    const hit = models.find((m) => modelKey(m.id) === key);
+    if (hit || !SETTING.test(key)) return hit || null;
+    key = key.replace(SETTING, "");
+  }
 }
 
 // Price of one model's usage. Cache writes cost extra: 1.25x input for 5-minute caching (or the
