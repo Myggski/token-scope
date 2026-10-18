@@ -16,10 +16,10 @@ jobs:
   release:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       - run: npm ci
       - name: Build the installer
@@ -38,10 +38,19 @@ jobs:
   test:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm test
+      - name: Run the tests
+        shell: bash
+        # Failing lines become notes on the run, readable without downloading the log.
+        run: |
+          set +e
+          npm test > test.log 2>&1
+          code=$?
+          cat test.log
+          if [ $code -ne 0 ]; then tail -n 25 test.log | sed 's/^/::error::/'; fi
+          exit $code

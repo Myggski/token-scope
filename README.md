@@ -42,7 +42,7 @@ If you move TokenScope to another folder, set up the connection again under **Co
 
 ## Development
 
-Requires [Node.js](https://nodejs.org/) 20 or newer.
+Requires [Node.js](https://nodejs.org/) 22 or newer.
 
 ```
 npm install

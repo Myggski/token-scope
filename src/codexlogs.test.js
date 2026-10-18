@@ -10,6 +10,12 @@ const { readCodex } = require("./history");
 const { findCodexActuals, listRollouts, parseRollout } = require("./codexlogs");
 const { createChecks } = require("./checks");
 
+if (!zlib.zstdCompressSync) {
+  // Making the compressed test logs needs Node 22.15 or newer (the app itself reads them on any version).
+  console.log("codex log tests skipped: they need Node 22.15 or newer");
+  process.exit(0);
+}
+
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ts-codex-"));
 const models = [{ id: "openai/gpt-5.5", inPerM: 5, outPerM: 30, cachedPerM: 0.5, cacheWritePerM: null }];
 const T = Date.UTC(2026, 9, 10, 9, 0);

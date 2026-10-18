@@ -24,7 +24,7 @@
   "private": true,
   "main": "main.js",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "start": "electron .",
