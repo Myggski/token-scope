@@ -20,7 +20,7 @@
   "author": {
     "name": "Tomas Wallin"
   },
-  "license": "UNLICENSED",
+  "license": "MIT",
   "private": true,
   "main": "main.js",
   "engines": {
