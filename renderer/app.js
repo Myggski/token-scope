@@ -819,7 +819,7 @@ function conversationPanel(c) {
             </tr>`).join("")}
           </tbody>
         </table>
-        <p class="panel-note">${c.approximate ? "Approximate, worked out from the size of each Cursor step." : c.saved ? `Exact, from ${escape(TOOL_NAMES[c.tool] || c.tool)}'s token counts. ${escape(TOOL_NAMES[c.tool] || c.tool)} no longer has this conversation, so this is TokenScope's saved summary, priced when it was saved.` : "Exact, from the tool's own token counts."}${c.unpriced ? " Some models have no price on OpenRouter, so they're not in the total." : ""}${jobs.length ? ` Plans in this conversation: ${escape(jobs.map((j) => j.title).join(", "))}.` : ""}</p>
+        <p class="panel-note">${c.approximate ? "Approximate, worked out from the size of each Cursor step. Usually within about 15%. Cursor's own usage page has the exact amount." : c.saved ? `Exact, from ${escape(TOOL_NAMES[c.tool] || c.tool)}'s token counts. ${escape(TOOL_NAMES[c.tool] || c.tool)} no longer has this conversation, so this is TokenScope's saved summary, priced when it was saved.` : "Exact, from the tool's own token counts."}${c.unpriced ? " Some models have no price on OpenRouter, so they're not in the total." : ""}${jobs.length ? ` Plans in this conversation: ${escape(jobs.map((j) => j.title).join(", "))}.` : ""}</p>
       </div>
       ${otherModelsBlock(c)}
     </div>`;
