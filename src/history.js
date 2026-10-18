@@ -545,7 +545,51 @@ function readCursorRecords(folder, since) {
       } catch {}
     }
   }
-  return records.sort((a, b) => a.t - b.t);
+  return cleanCursorRecords(records.sort((a, b) => a.t - b.t));
+}
+
+// Cursor reports each thinking step twice: once with the turn's id ("3e2c…") and once with a
+// variant of it ("3e2c…-0-czmt"). The variant is reduced to the turn's id, and the second copy of
+// a thinking step (same turn, same size, within 2 seconds) is dropped. Otherwise thinking counts
+// twice, and every switch between the two ids looks like you writing a new message.
+const baseGeneration = (gen) => (typeof gen === "string" ? gen.replace(/-\d+-[a-z0-9]{4}$/i, "") : gen);
+function cleanCursorRecords(records) {
+  const seen = new Map(); // conversation | turn | size -> when last seen
+  const out = [];
+  for (const r of records) {
+    const gen = baseGeneration(r.gen);
+    const clean = gen === r.gen ? r : { ...r, gen };
+    if (r.e === "afterAgentThought") {
+      const key = `${r.c}|${gen}|${r.out}`;
+      const last = seen.get(key);
+      seen.set(key, r.t);
+      if (last !== undefined && r.t - last <= 2000) continue;
+    }
+    out.push(clean);
+  }
+  return out;
+}
+
+// Cursor runs a helper agent (subagentStart … subagentStop in a conversation) under a conversation
+// id of its own. A conversation that falls entirely inside such a window belongs to that conversation.
+// Returns a Map of helper conversation id -> the conversation that started it.
+function cursorHelpers(byConversation) {
+  const windows = [];
+  for (const [id, records] of byConversation) {
+    records.forEach((r, i) => {
+      if (r.e !== "subagentStart") return;
+      const stop = records.slice(i + 1).find((x) => x.e === "subagentStop");
+      windows.push({ parent: id, start: r.t - 1000, end: stop ? stop.t + 5000 : r.t + 30 * 60e3 });
+    });
+  }
+  const parentOf = new Map();
+  for (const [id, records] of byConversation) {
+    if (records.some((r) => r.e === "subagentStart")) continue; // starts helpers itself: a main conversation
+    const first = records[0].t, last = records[records.length - 1].t;
+    const w = windows.find((x) => x.parent !== id && first >= x.start && last <= x.end);
+    if (w) parentOf.set(id, w.parent);
+  }
+  return parentOf;
 }
 
 // Format checks on the hook's records: Cursor sends the fields TokenScope expects.
@@ -624,8 +668,10 @@ function readCursor(models, since, { folder, checks = NO_CHECKS, cacheHit = DEFA
     if (!byConversation.has(r.c)) byConversation.set(r.c, []);
     byConversation.get(r.c).push(r);
   }
+  const parentOf = cursorHelpers(byConversation);
   const out = [];
   for (const [id, records] of byConversation) {
+    if (parentOf.has(id)) continue; // a helper agent: counted with the conversation that started it
     const byModel = new Map();
     const requests = [];
     const genStart = new Map();
@@ -645,6 +691,18 @@ function readCursor(models, since, { folder, checks = NO_CHECKS, cacheHit = DEFA
       const usage = { requests: 1, input: 0, cacheRead: part.resent * cacheHit, write5m: part.fresh + part.resent * (1 - cacheHit), write1h: 0, output: part.output };
       requests.push({ t, model: p, pause, context: part.context, fresh: usage.write5m, cached: usage.cacheRead, output: part.output, cost: p ? usageCost(p, usage) : 0 });
     });
+    // Helper agents: their own context, replayed separately, added to this conversation's cost.
+    let helperCost = 0, end = records[records.length - 1].t;
+    for (const [child, parent] of parentOf) {
+      if (parent !== id) continue;
+      const helper = byConversation.get(child);
+      replayCursor(helper, (part) => {
+        cursorUsage(byModel, part.model, part, cacheHit);
+        const p = findPricedModel(models, part.model);
+        if (p) helperCost += usageCost(p, { requests: 1, input: 0, cacheRead: part.resent * cacheHit, write5m: part.fresh + part.resent * (1 - cacheHit), write1h: 0, output: part.output });
+      });
+      end = Math.max(end, helper[helper.length - 1].t);
+    }
     const priced = summarize(byModel, models);
     if (!priced.models.length) continue;
     const indexAt = (t) => Math.max(0, requests.findIndex((q) => q.t >= t));
@@ -658,8 +716,8 @@ function readCursor(models, since, { folder, checks = NO_CHECKS, cacheHit = DEFA
     out.push({
       id: `cursor:${id}`, tool: "cursor", title: (records.find((r) => r.title) || {}).title || "Cursor conversation",
       project: (records.find((r) => r.project) || {}).project || null,
-      start: records[0].t, end: records[records.length - 1].t, approximate: true, jobIds, ...priced,
-      insights: analyze({ requests, tools, cacheMinutes: 5, total: priced.cost }),
+      start: records[0].t, end, approximate: true, jobIds, ...priced,
+      insights: analyze({ requests, tools, cacheMinutes: 5, helperCost, total: priced.cost }),
     });
   }
   return out;
@@ -672,6 +730,13 @@ function cursorJobActuals(jobs, models, folder, now = Date.now(), cacheHit = DEF
   if (!open.length) return {};
   const since = Math.min(...open.map((j) => Date.parse(j.createdAt))) - 60e3;
   const records = readCursorRecords(folder, since);
+  const grouped = new Map();
+  for (const r of records) {
+    if (!r.c) continue;
+    if (!grouped.has(r.c)) grouped.set(r.c, []);
+    grouped.get(r.c).push(r);
+  }
+  const parentOf = cursorHelpers(grouped);
   const changes = {};
   for (const job of open) {
     const conversations = new Set(records.filter((r) => r.job === job.id).map((r) => r.c));
@@ -680,14 +745,29 @@ function cursorJobActuals(jobs, models, folder, now = Date.now(), cacheHit = DEF
     let last = 0;
     const finished = records.some((r) => r.job === job.id && r.action === "finish_job");
     for (const conv of conversations) {
-      let active = false;
-      replayInterleaved(records.filter((r) => r.c === conv), (r) => {
-        if (r.job) active = r.job === job.id && r.action !== "finish_job";
+      let active = false, from = null;
+      const spans = []; // when the job was running in this conversation
+      replayInterleaved(grouped.get(conv) || [], (r) => {
+        if (!r.job) return;
+        const now = r.job === job.id && r.action !== "finish_job";
+        if (now && !active) from = r.t;
+        if (!now && active) spans.push([from, r.t]);
+        active = now;
       }, (part) => {
         if (!active) return;
         cursorUsage(byModel, part.model, part, cacheHit);
         last = Math.max(last, part.record.t);
       });
+      if (active) spans.push([from, Infinity]);
+      // Helper agents this conversation started while the job was running count too.
+      for (const [child, parent] of parentOf) {
+        if (parent !== conv) continue;
+        replayCursor(grouped.get(child), (part) => {
+          if (!spans.some(([a, b]) => part.record.t >= a && part.record.t < b)) return;
+          cursorUsage(byModel, part.model, part, cacheHit);
+          last = Math.max(last, part.record.t);
+        });
+      }
     }
     const priced = summarize(byModel, models);
     if (!priced.models.length) continue;

@@ -1,7 +1,7 @@
 {
   "name": "tokenscope",
   "productName": "TokenScope",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "See what your AI coding costs before and after: estimate tasks, measure what they really cost, and track spending across Claude Code, Codex, Cursor and OpenCode.",
   "keywords": [
     "ai",
@@ -28,7 +28,7 @@
   },
   "scripts": {
     "start": "electron .",
-    "test": "node src/estimate.test.js && node src/claudelogs.test.js && node src/history.test.js && node src/insights.test.js && node src/codexlogs.test.js && node src/archive.test.js && node src/opencode-wsl.test.js && node src/cursor-hook.test.js",
+    "test": "node src/estimate.test.js && node src/claudelogs.test.js && node src/history.test.js && node src/insights.test.js && node src/codexlogs.test.js && node src/archive.test.js && node src/opencode-wsl.test.js && node src/cursor-hook.test.js && node src/cursor-records.test.js",
     "dist": "electron-builder --win nsis",
     "dist:portable": "electron-builder --win portable"
   },
