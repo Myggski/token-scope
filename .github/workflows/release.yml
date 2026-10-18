@@ -1,10 +1,11 @@
-# Builds the Windows installer and publishes a GitHub release when a version tag is pushed:
-#   git tag v1.0.1 && git push origin v1.0.1
+# Builds the Windows installer and publishes it as a GitHub release, for the version in package.json.
+# Start it from GitHub: Actions → Release → Run workflow. (Pushing a tag like v1.0.1 starts it too.)
 # The release text comes from .github/release-notes.md. The tests run in their own job on Windows,
 # so a failing test shows up here without stopping the release.
 name: Release
 
 on:
+  workflow_dispatch:
   push:
     tags: ["v*"]
 
@@ -28,8 +29,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/TokenScope-Setup-*.exe \
-            --title "TokenScope ${GITHUB_REF_NAME#v}" \
+          version="v$(node -p "require('./package.json').version")"
+          gh release create "$version" dist/TokenScope-Setup-*.exe \
+            --target "$GITHUB_SHA" \
+            --title "TokenScope ${version#v}" \
             --notes-file .github/release-notes.md
 
   test:
