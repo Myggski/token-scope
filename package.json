@@ -2,7 +2,7 @@
   "name": "tokenscope",
   "productName": "TokenScope",
   "version": "1.0.0",
-  "description": "See what your AI coding costs before and after: estimate planned jobs, measure their real cost, and track usage across Claude Code, Codex, Cursor and OpenCode so your AI can suggest how to spend less.",
+  "description": "See what your AI coding costs before and after: estimate tasks, measure what they really cost, and track spending across Claude Code, Codex, Cursor and OpenCode.",
   "keywords": [
     "ai",
     "llm",
