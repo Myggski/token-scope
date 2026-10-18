@@ -28,7 +28,7 @@ The app shows facts only. The suggestions come from your AI.
 
 ## Privacy
 
-Everything stays on your computer. No accounts and no API keys. TokenScope reads the records your AI tools already keep, and saves only sizes, costs and times, never your code, prompts or the AI's replies. Tracking is off until you switch it on. The only thing sent anywhere is the request for prices to OpenRouter.
+Everything stays on your computer. No accounts and no API keys. TokenScope reads the records your AI tools already keep (for Cursor, also each chat's name and size), and saves only sizes, costs and times, never your code, prompts or the AI's replies. Tracking is off until you switch it on. The only thing sent anywhere is the request for prices to OpenRouter.
 
 ## Getting started
 
@@ -59,6 +59,7 @@ Where things are:
 - `src/archive.js`: saved summaries, so Spending keeps conversations after a tool deletes its own records.
 - `src/wsl.js`: finding the tools' records inside WSL.
 - `src/cursorhook.js`, `src/cursor-hook.js`: the optional Cursor hook.
+- `src/cursordb.js`: reads Cursor chat names and sizes from Cursor's own database, read-only.
 - `renderer/`: the interface.
 
 App data is saved in `%APPDATA%\TokenScope`: `tokenscope-data.json` (plans, favorites, settings) and the `history` folder (Cursor records and saved summaries).

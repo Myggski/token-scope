@@ -8,6 +8,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { cursorChats } = require("./cursordb");
 const { byCost, listAllLogs, logsFolders, parseLines, sumUsage, findPricedModel, usageCost } = require("./claudelogs");
 const { wslHomes } = require("./wsl");
 const { DEFAULT_CACHE_HIT, estimateJob } = require("./estimate");
@@ -529,6 +530,10 @@ async function syncOpenCodeActuals(store, models, options) {
 //     bill implies about 2,400 characters per edit
 //   - summarizing ran on the chat's own model, reading about half the conversation, without cache
 const CURSOR = {
+  batchMs: 2000, // tool results this close together came from one request
+  readTokens: 2000, // what a file read adds when Cursor's own sizes aren't available (the hook doesn't say)
+  toolTokens: 300, // the least another tool's result adds (the hook passes shortened results)
+  requestOutput: 0, // extra output per request the hook doesn't report: measured as none once replies are fully counted
   baseContext: 27000, // Cursor's own text at the start of every chat
   prompt: 300, // the user's message at the start of each turn
   cacheMs: 5 * 60e3, // the cache expires after 5 quiet minutes
@@ -617,10 +622,14 @@ function checkCursorRecords(records, checks) {
 }
 
 // Replays one conversation's records step by step: the context grows with every tool result and
-// reply, and each step sends it all again. Calls back for each model request with its cost parts.
+// reply, and each model request sends it all again. Calls back for each request with its cost parts.
 // startContext: what the conversation already held when the records start (see startOffset).
-function replayCursor(records, onRequest, { startContext = CURSOR.baseContext } = {}) {
-  let context = startContext, sent = 0, generation = null, pendingThought = 0, lastRequest = null, model = null;
+// anchors: Cursor's own count of the conversation's size, from its local database (see
+// cursorAnchors): { turns: Map(turn id -> size when that message was sent), end, endAt }. With
+// them, each turn's growth is stretched to land on Cursor's size at the next turn.
+// Requests: Cursor runs tool calls in batches. Tool results within batchMs of each other came
+// from one request; a thought or reply after tool results starts a new one.
+function replayCursor(records, onRequest, { startContext = CURSOR.baseContext, anchors = null } = {}) {
   // The changed text, from newer hooks. One that saw no edits (Cursor sending other fields than
   // expected) is ignored, so the edit falls back to the guess instead of counting as nothing.
   const edits = records.filter((r) => r.e === "afterFileEdit" && r.edits > 0 && (r.out || 0) + (r.del || 0) > 0);
@@ -635,37 +644,119 @@ function replayCursor(records, onRequest, { startContext = CURSOR.baseContext } 
     }
     return r.in > CURSOR.wholeFile ? CURSOR.editChars : r.in;
   };
-  for (const r of records) {
-    if (r.gen && r.gen !== generation) {
-      generation = r.gen;
-      context += CURSOR.prompt;
+  // How much a step adds to the conversation. Cursor doesn't pass what a file read returned, so a
+  // read counts as readTokens.
+  const growth = (r) => {
+    if (r.e === "afterAgentThought") return 0; // counted with the request's output
+    if (r.e === "afterAgentResponse") return tokensOf(r.out);
+    if (r.e !== "postToolUse") return 0;
+    const input = isEditTool(r.tool) ? editSize(r) : r.in;
+    const result = Math.max(tokensOf(r.out), /^read/i.test(r.tool || "") ? CURSOR.readTokens : CURSOR.toolTokens);
+    return tokensOf(input) + 30 + result;
+  };
+  const steps = records.map((r) => ({ r, grow: growth(r) }));
+  used.clear();
+
+  // With anchors: stretch growth to what Cursor counted. A stretch runs from one known size to the
+  // next: a turn's start, the size Cursor reports when it summarizes (and the restart after it),
+  // and the chat's size at the end.
+  const segmentOf = new Map(); // step -> stretch
+  const stretches = [];
+  if (anchors && anchors.turns && anchors.turns.size) {
+    let current = null, gen = null;
+    const open = (from) => (current = { from, to: undefined, raw: 0 }, stretches.push(current));
+    steps.forEach((step, i) => {
+      const r = step.r;
+      if (r.gen && r.gen !== gen) {
+        gen = r.gen;
+        const at = anchors.turns.get(r.gen);
+        if (current && current.to === undefined) current.to = at === undefined ? undefined : at - CURSOR.prompt;
+        // The first turn of a chat TokenScope saw from its start grows from the starting size.
+        open(at !== undefined ? at : stretches.length === 0 ? startContext : undefined);
+      }
+      if (r.e === "preCompact" && current) {
+        current.to = r.ctx || undefined;
+        open(CURSOR.baseContext + CURSOR.compactOutput);
+        return;
+      }
+      if (current) {
+        current.raw += step.grow;
+        segmentOf.set(step, current);
+      }
+    });
+    if (current && current.to === undefined) current.to = anchors.end;
+    for (const x of stretches) {
+      const target = x.from !== undefined && x.to !== undefined ? x.to - x.from : undefined;
+      x.factor = target > 0 && x.raw > 0 ? Math.min(200, Math.max(0.1, target / x.raw)) : 1;
     }
-    if (r.e === "preCompact") {
-      // Summarizing is a request of its own, on the chat's model, reading part of the
-      // conversation without cache. Cursor tells the real size here, so the estimate restarts from it.
-      const actual = r.ctx || context;
-      onRequest({ record: r, model: model || r.model || "unknown", resent: 0, fresh: Math.round(actual * CURSOR.compactShare), output: CURSOR.compactOutput, context: actual, expired: false, compaction: true });
-      context = CURSOR.baseContext + CURSOR.compactOutput;
-      sent = 0;
-      continue;
-    }
-    if (r.e === "afterAgentThought") {
-      pendingThought += tokensOf(r.out);
-      continue;
-    }
-    if (r.e !== "postToolUse" && r.e !== "afterAgentResponse") continue;
-    const input = r.e === "postToolUse" ? (isEditTool(r.tool) ? editSize(r) : r.in) : 0;
-    const output = (r.e === "postToolUse" ? tokensOf(input) + 30 : tokensOf(r.out)) + pendingThought;
-    pendingThought = 0;
+  }
+
+  let context = startContext, sent = 0, generation = null, pendingThought = 0, lastRequest = null, model = null;
+  let batch = null, lastTool = 0; // batch: the request whose tool results are still coming in
+  // A request is reported once it's complete: its output is added as its tool calls and reply come in.
+  let unreported = null;
+  const report = (request) => {
+    if (unreported) onRequest(unreported);
+    unreported = request;
+  };
+  const send = (r) => {
     // After 5 quiet minutes the cache is gone, and everything is re-read at full price.
     if (lastRequest !== null && r.t - lastRequest > CURSOR.cacheMs) sent = 0;
     lastRequest = r.t;
     model = r.model || model;
     const resent = Math.min(sent, context), fresh = context - resent;
-    onRequest({ record: r, model: r.model || "unknown", resent, fresh, output, context, expired: resent === 0 && fresh > CURSOR.baseContext });
+    const request = { record: r, model: r.model || "unknown", resent, fresh, output: pendingThought + CURSOR.requestOutput, context, expired: resent === 0 && fresh > CURSOR.baseContext };
+    pendingThought = 0;
     sent = context;
-    context += r.e === "postToolUse" ? tokensOf(input) + 30 + tokensOf(r.out) : tokensOf(r.out);
+    report(request);
+    return request;
+  };
+  for (const step of steps) {
+    const { r, grow } = step;
+    if (r.gen && r.gen !== generation) {
+      generation = r.gen;
+      const anchored = anchors && anchors.turns ? anchors.turns.get(r.gen) : undefined;
+      context = anchored !== undefined ? anchored + CURSOR.prompt : context + CURSOR.prompt;
+      batch = null;
+    }
+    if (r.e === "preCompact") {
+      // Summarizing is a request of its own, on the chat's model, reading part of the
+      // conversation without cache. Cursor tells the real size here, so the estimate restarts from it.
+      const actual = r.ctx || context;
+      report({ record: r, model: model || r.model || "unknown", resent: 0, fresh: Math.round(actual * CURSOR.compactShare), output: CURSOR.compactOutput, context: actual, expired: false, compaction: true });
+      context = CURSOR.baseContext + CURSOR.compactOutput;
+      sent = 0;
+      batch = null;
+      continue;
+    }
+    if (r.e === "afterAgentThought") {
+      // Thinking comes first in the request it belongs to, so the next tool call or reply is a new request.
+      pendingThought += tokensOf(r.out);
+      batch = null;
+      continue;
+    }
+    // A turn that ends on a thought: that thought was a request of its own (its reply isn't reported).
+    if (r.e === "stop" && pendingThought) {
+      send(r);
+      batch = null;
+      continue;
+    }
+    if (r.e !== "postToolUse" && r.e !== "afterAgentResponse") continue;
+    const added = Math.round(grow * (segmentOf.has(step) ? segmentOf.get(step).factor : 1));
+    if (r.e === "postToolUse") {
+      // Tool results close together were asked for in one request.
+      if (!batch || r.t - lastTool > CURSOR.batchMs) batch = send(r);
+      // The call itself is written by the model: an edit's text, or a short call.
+      batch.output += (isEditTool(r.tool) ? tokensOf(editSize(r)) : 0) + 30;
+      lastTool = r.t;
+    } else {
+      send(r).output += tokensOf(r.out);
+      batch = null;
+    }
+    context += added;
   }
+  report(null);
+  used.clear();
 }
 
 // What a conversation already held when TokenScope's records start. A chat that began before
@@ -682,9 +773,9 @@ function startOffset(records) {
 
 // Replays, calling onRecord for every record before the requests it leads to, so job marks can
 // switch attribution on and off at the right moment.
-function replayInterleaved(records, onRecord, onRequest) {
+function replayInterleaved(records, onRecord, onRequest, anchors = null) {
   const collected = [];
-  replayCursor(records, (part) => collected.push(part), { startContext: startOffset(records) });
+  replayCursor(records, (part) => collected.push(part), { startContext: startOffset(records), anchors });
   let i = 0;
   for (const r of records) {
     onRecord(r);
@@ -707,7 +798,10 @@ function cursorUsage(byModel, model, part, cacheHit) {
   byModel.set(model, u);
 }
 
-function readCursor(models, since, { folder, checks = NO_CHECKS, cacheHit = CURSOR.cacheHit } = {}) {
+// Cursor's own sizes for a conversation, as replayCursor's anchors (see cursordb.js).
+const anchorsOf = (info) => (info && (info.turns.size || info.end) ? { turns: info.turns, end: info.end } : null);
+
+function readCursor(models, since, { folder, checks = NO_CHECKS, cacheHit = CURSOR.cacheHit, chats = cursorChats } = {}) {
   const all = readCursorRecords(folder, since);
   checkCursorRecords(all, checks);
   const byConversation = new Map();
@@ -717,6 +811,7 @@ function readCursor(models, since, { folder, checks = NO_CHECKS, cacheHit = CURS
     byConversation.get(r.c).push(r);
   }
   const parentOf = cursorHelpers(byConversation);
+  const info = chats([...byConversation.keys()]);
   const out = [];
   for (const [id, records] of byConversation) {
     if (parentOf.has(id)) continue; // a helper agent: counted with the conversation that started it
@@ -738,7 +833,7 @@ function readCursor(models, since, { folder, checks = NO_CHECKS, cacheHit = CURS
       }
       const usage = cursorParts(part, cacheHit);
       requests.push({ t, model: p, pause, context: part.context, fresh: usage.input + usage.write5m, cached: usage.cacheRead, output: part.output, cost: p ? usageCost(p, usage) : 0 });
-    }, { startContext: startOffset(records) });
+    }, { startContext: startOffset(records), anchors: anchorsOf(info.get(id)) });
     // Helper agents: their own context, replayed separately, added to this conversation's cost.
     let helperCost = 0, end = records[records.length - 1].t;
     for (const [child, parent] of parentOf) {
@@ -748,7 +843,7 @@ function readCursor(models, since, { folder, checks = NO_CHECKS, cacheHit = CURS
         cursorUsage(byModel, part.model, part, cacheHit);
         const p = findPricedModel(models, part.model);
         if (p) helperCost += usageCost(p, cursorParts(part, cacheHit));
-      });
+      }, { anchors: anchorsOf(info.get(child)) });
       end = Math.max(end, helper[helper.length - 1].t);
     }
     const priced = summarize(byModel, models);
@@ -762,7 +857,7 @@ function readCursor(models, since, { folder, checks = NO_CHECKS, cacheHit = CURS
     })));
     const jobIds = [...new Set(records.filter((r) => r.job).map((r) => r.job))];
     out.push({
-      id: `cursor:${id}`, tool: "cursor", title: (records.find((r) => r.title) || {}).title || "Cursor conversation",
+      id: `cursor:${id}`, tool: "cursor", title: (info.get(id) || {}).name || (records.find((r) => r.title) || {}).title || "Cursor conversation",
       project: (records.find((r) => r.project) || {}).project || null,
       start: records[0].t, end, approximate: true, jobIds, ...priced,
       insights: analyze({ requests, tools, cacheMinutes: 5, helperCost, total: priced.cost }),
@@ -773,7 +868,7 @@ function readCursor(models, since, { folder, checks = NO_CHECKS, cacheHit = CURS
 
 // Approximate real costs of jobs that ran in Cursor: requests after the job's estimate (or
 // continue_job) in its conversation, until finish_job or another job starts there.
-function cursorJobActuals(jobs, models, folder, now = Date.now(), cacheHit = CURSOR.cacheHit, keep = 30) {
+function cursorJobActuals(jobs, models, folder, now = Date.now(), cacheHit = CURSOR.cacheHit, keep = 30, chats = cursorChats) {
   // Finished plans are measured again while their records are kept, so a better reading of
   // Cursor's records (a newer TokenScope) also corrects plans that ran before it.
   const open = jobs.filter((j) => !j.actual || j.actual.source === "ai" ||
@@ -788,6 +883,7 @@ function cursorJobActuals(jobs, models, folder, now = Date.now(), cacheHit = CUR
     grouped.get(r.c).push(r);
   }
   const parentOf = cursorHelpers(grouped);
+  const info = chats([...grouped.keys()]);
   const changes = {};
   for (const job of open) {
     const conversations = new Set(records.filter((r) => r.job === job.id).map((r) => r.c));
@@ -811,7 +907,7 @@ function cursorJobActuals(jobs, models, folder, now = Date.now(), cacheHit = CUR
         if (!active || part.record.t >= endedAt) return;
         cursorUsage(byModel, part.model, part, cacheHit);
         last = Math.max(last, part.record.t);
-      });
+      }, anchorsOf(info.get(conv)));
       if (active) spans.push([from, endedAt]);
       // Helper agents this conversation started while the job was running count too.
       for (const [child, parent] of parentOf) {
@@ -820,7 +916,7 @@ function cursorJobActuals(jobs, models, folder, now = Date.now(), cacheHit = CUR
           if (!spans.some(([a, b]) => part.record.t >= a && part.record.t < b)) return;
           cursorUsage(byModel, part.model, part, cacheHit);
           last = Math.max(last, part.record.t);
-        });
+        }, { anchors: anchorsOf(info.get(child)) });
       }
     }
     const priced = summarize(byModel, models);
