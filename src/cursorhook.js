@@ -6,7 +6,7 @@ const os = require("os");
 const path = require("path");
 
 const MARKER = "tokenscope-cursor-hook";
-const EVENTS = ["sessionStart", "sessionEnd", "postToolUse", "afterAgentResponse", "afterAgentThought", "subagentStart", "subagentStop", "preCompact", "afterMCPExecution", "afterShellExecution", "stop"];
+const EVENTS = ["sessionStart", "sessionEnd", "afterFileEdit", "postToolUse", "afterAgentResponse", "afterAgentThought", "subagentStart", "subagentStop", "preCompact", "afterMCPExecution", "afterShellExecution", "stop"];
 
 const cursorFolder = () => path.join(os.homedir(), ".cursor");
 const hooksFile = () => path.join(cursorFolder(), "hooks.json");
@@ -72,6 +72,17 @@ function removeHook() {
   writeHooks(data);
 }
 
+// Whether TokenScope's hook is on every step it records. A newer TokenScope can record more
+// steps than an older one installed, and then adds them (see main.js).
+function hookComplete() {
+  try {
+    const hooks = readHooks().hooks;
+    return EVENTS.every((event) => Array.isArray(hooks[event]) && hooks[event].some(ours));
+  } catch {
+    return false;
+  }
+}
+
 function hookInstalled() {
   try {
     return Object.values(readHooks().hooks).some((list) => Array.isArray(list) && list.some(ours));
@@ -122,4 +133,4 @@ function pruneRecords(records, keepDays, all = false) {
   return removed;
 }
 
-module.exports = { installHook, removeHook, hookInstalled, cursorFound, hooksFile, lastRecord, lastProblem, problemsFile, pruneRecords, EVENTS, MARKER };
+module.exports = { installHook, removeHook, hookInstalled, hookComplete, cursorFound, hooksFile, lastRecord, lastProblem, problemsFile, pruneRecords, EVENTS, MARKER };

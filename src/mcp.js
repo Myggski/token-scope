@@ -245,7 +245,7 @@ function createHandlers({ store, getModels, sync = async () => {}, client = () =
         },
         correction: fix.applied
           ? `Adjusted by ${round(fix.factor, 2)}x, from ${fix.jobs} past jobs with recorded actual costs.`
-          : `Not adjusted yet: needs at least 2 past jobs with recorded actual costs (has ${fix.jobs}).`,
+          : `Not adjusted yet: needs at least 2 past jobs with an exact recorded actual cost (has ${fix.jobs}).${fix.approximate ? ` ${fix.approximate} job${fix.approximate === 1 ? " has" : "s have"} only an approximate cost (Cursor), which doesn't count.` : ""}`,
         estimates,
         next: job ? `Show the user the likely cost and range per model. If the work continues in another session, call continue_job with job_id "${job.id}" there first. When all of it is done, call finish_job with that job_id. In Claude Code, Codex and OpenCode, and in Cursor with tracking on, the real cost is measured automatically. Elsewhere, use record_actual.` : null,
       };

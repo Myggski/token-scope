@@ -251,12 +251,13 @@
             <p>If your Cursor spending doesn't appear after you've used it, restart Cursor once.</p>
             <h3>How accurate are the costs?</h3>
             <p>Claude Code, Codex and OpenCode report exact token counts, so their costs are exact.</p>
-            <p>Cursor doesn't report exact token counts. TokenScope works out its costs from the size of each step. These costs are marked with ≈ to show they're approximate.</p>
+            <p>Cursor doesn't report exact token counts. TokenScope works out its costs from the size of each step, tuned against Cursor's own usage page. These costs are marked with ≈ and are usually within about 15% per conversation. Cursor's usage page has the exact amounts.</p>
+            <p>Approximate costs don't change future estimates. Only plans with an exact real cost do.</p>
             <p>Costs use today's prices, except for older conversations a tool no longer keeps, which keep the prices from when TokenScope saved them.</p>
             <h3>Why is a conversation missing?</h3>
             <p>Spending only shows the tools turned on under Track AI spending, and only work done on this computer. Claude Code in the cloud or in a browser, Claude Desktop and ChatGPT keep no records here. Cursor conversations show up from when you turned Cursor on. Tools inside WSL are read only while WSL is running. And Spending only goes back as far as Keep spending history for.</p>
             <h3>What does the Cursor hook save?</h3>
-            <p>It saves usage details: how much text each step read and wrote, which model was used, when it happened, and whether a step was a build or a test.</p>
+            <p>It saves usage details: how much text each step read and wrote, how many characters an edit changed, which model was used, when it happened, and whether a step was a build or a test.</p>
             <p>It also saves a scrambled identifier for your Cursor account, not your email address.</p>
             <p>It never saves your code, prompts, commands or the AI's replies.</p>
           </div>

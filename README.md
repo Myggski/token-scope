@@ -24,7 +24,7 @@ The app shows facts only. The suggestions come from your AI.
 | Cursor | ✓ | ≈ | ≈ |
 | Claude Desktop and other MCP tools | ✓ | | |
 
-≈ means approximate, because Cursor doesn't keep token counts. Using ChatGPT? It can't connect to programs on your computer, but Codex and OpenCode can, and both can sign in with your ChatGPT account. Claude Code, Codex and OpenCode running inside WSL are read too, while WSL is running.
+≈ means approximate, because Cursor doesn't keep token counts. TokenScope works them out from the size of each step, usually within about 15% of Cursor's usage page, and they don't change future estimates. Using ChatGPT? It can't connect to programs on your computer, but Codex and OpenCode can, and both can sign in with your ChatGPT account. Claude Code, Codex and OpenCode running inside WSL are read too, while WSL is running.
 
 ## Privacy
 

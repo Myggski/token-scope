@@ -9,7 +9,7 @@ const { syncActuals, logsFolder, logsFolders } = require("./src/claudelogs");
 const { setJobModels } = require("./src/jobs");
 const { readClaudeCode, readCodex, readOpenCode, openCodeFound, readCursor, syncCursorActuals, syncOpenCodeActuals } = require("./src/history");
 const { codexHome, codexFound, syncCodexActuals } = require("./src/codexlogs");
-const { installHook, removeHook, hookInstalled, cursorFound, lastRecord, lastProblem, problemsFile, pruneRecords } = require("./src/cursorhook");
+const { installHook, removeHook, hookInstalled, hookComplete, cursorFound, lastRecord, lastProblem, problemsFile, pruneRecords } = require("./src/cursorhook");
 const { createChecks, checkOpenRouter } = require("./src/checks");
 const { withArchive, pruneArchive, clearArchive } = require("./src/archive");
 
@@ -307,6 +307,13 @@ function startWindowApp() {
       console.error("Reading Cursor records failed:", error);
     }
   };
+  // An update can record more Cursor steps than the hook that's installed: add them, so nobody
+  // has to switch Cursor off and on. Only when Cursor tracking is on and TokenScope's hook is there.
+  try {
+    if (tracking().cursor && hookInstalled() && !hookComplete()) installHook(app.getPath("userData"), cursorHookLaunch());
+  } catch (error) {
+    console.error("Updating the Cursor hook failed:", error.message);
+  }
   // Cursor records older than the kept period are deleted on start.
   pruneRecords(cursorRecords(), keepDays());
   ipcMain.handle("jobs:sync", sync);

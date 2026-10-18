@@ -76,16 +76,22 @@
 
   // Learns how far off estimates have been: actual cost / likely estimate for the model used,
   // over past jobs that have both. Geometric mean, so 2x over and 2x under cancel out.
+  // How far real costs have been from the estimates (geometric mean of real / likely), from finished
+  // jobs with an exact real cost. Approximate ones (Cursor) don't count: they can be far off, and a
+  // wrong correction would make every later estimate wrong. `approximate` says how many were left out.
   function correction(jobs) {
     const ratios = [];
+    let approximate = 0;
     for (const job of jobs || []) {
       const a = job.actual, e = a && job.estimates && job.estimates[a.modelId];
       // A job still running hasn't reached its full cost yet.
-      if (a && e && a.status !== "running" && e.likely > 0 && a.costUsd > 0) ratios.push(a.costUsd / e.likely);
+      if (!(a && e && a.status !== "running" && e.likely > 0 && a.costUsd > 0)) continue;
+      if (a.approximate) approximate++;
+      else ratios.push(a.costUsd / e.likely);
     }
-    if (ratios.length < 2) return { factor: 1, jobs: ratios.length, applied: false };
+    if (ratios.length < 2) return { factor: 1, jobs: ratios.length, approximate, applied: false };
     const factor = Math.exp(ratios.reduce((sum, r) => sum + Math.log(r), 0) / ratios.length);
-    return { factor: Math.min(5, Math.max(0.2, factor)), jobs: ratios.length, applied: true };
+    return { factor: Math.min(5, Math.max(0.2, factor)), jobs: ratios.length, approximate, applied: true };
   }
 
   function applyCorrection(estimate, factor) {

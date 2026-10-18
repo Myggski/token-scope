@@ -20,7 +20,7 @@ const size = (value) => (value === undefined || value === null ? 0 : typeof valu
 const account = (email) => (email ? crypto.createHash("sha256").update(`tokenscope:${String(email).trim().toLowerCase()}`).digest("hex").slice(0, 8) : null);
 
 // The steps TokenScope asks Cursor for (see cursorhook.js). Anything else means Cursor renamed them.
-const KNOWN = new Set(["sessionStart", "sessionEnd", "postToolUse", "afterAgentResponse", "afterAgentThought", "subagentStart", "subagentStop", "preCompact", "afterMCPExecution", "afterShellExecution", "stop"]);
+const KNOWN = new Set(["sessionStart", "sessionEnd", "afterFileEdit", "postToolUse", "afterAgentResponse", "afterAgentThought", "subagentStart", "subagentStop", "preCompact", "afterMCPExecution", "afterShellExecution", "stop"]);
 
 // Noted once per name and day, so a renamed step can't fill the log.
 function unknownEvent(name, input) {
@@ -63,6 +63,13 @@ function record(input) {
     r.messages = input.message_count || 0;
   } else if (e === "preCompact") {
     r.ctx = input.context_tokens || null;
+  } else if (e === "afterFileEdit") {
+    // Only how much changed: the text added and the text replaced, counted in characters.
+    // Cursor reports whole files on its edit tool, so this is the real size of an edit.
+    const edits = Array.isArray(input.edits) ? input.edits : [];
+    r.out = edits.reduce((n, x) => n + size(x && x.new_string), 0);
+    r.del = edits.reduce((n, x) => n + size(x && x.old_string), 0);
+    r.edits = edits.length;
   } else if (e === "sessionStart") {
     // The project is noted above, as on every step.
   } else if (e === "afterMCPExecution") {

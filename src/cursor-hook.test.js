@@ -54,6 +54,12 @@ const lastProblem = () => JSON.parse(fs.readFileSync(problems, "utf8").trim().sp
   assert.strictEqual(saved().length, 5, "UTF-16, with or without its mark, is fine");
   assert.ok(!fs.existsSync(problems), "no problems so far");
 
+  // An edit: only how much changed is kept, never the text or the file name.
+  await run(JSON.stringify(step({ hook_event_name: "afterFileEdit", file_path: "C:/work/secret.cpp", edits: [{ old_string: "int a = 1;", new_string: "int a = 2; // fixed" }, { old_string: "", new_string: "x" }] })));
+  const edited = saved().pop();
+  assert.deepStrictEqual([edited.e, edited.out, edited.del, edited.edits], ["afterFileEdit", 20, 10, 2]);
+  assert.ok(!/secret|int a/.test(JSON.stringify(edited)), "no content or file names");
+
   r = await run("not json");
   assert.strictEqual(r.out, "{}", "still answers Cursor");
   assert.match(lastProblem().problem, /couldn't read Cursor's step/);

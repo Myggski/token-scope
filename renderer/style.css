@@ -353,3 +353,5 @@ table.mini tr:last-child td { border-bottom: 0; }
 /* On other models (Spending's Details): a wider number column, for "5.2× cheaper" on one line. */
 .model-rows.compare-rows li { grid-template-columns: minmax(0, 1fr) 10rem auto; }
 .compare-rows .sub-value { white-space: nowrap; }
+/* Notes under a plan's costs ("1.8× estimate · approximate") wrap inside their column instead of running under the Delete button. */
+#jobRows td.num .sub-value { white-space: normal; }

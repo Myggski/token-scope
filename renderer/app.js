@@ -305,7 +305,7 @@ function jobPanel(job) {
   const byName = (a, b) => a.name.localeCompare(b.name);
   const models = `
     <div class="panel-block">
-      <h4>Models</h4>
+      <h4>Estimate on each model</h4>
       <ul class="model-rows">${ids.map((id) => `
         <li>
           <span class="model-label">${escape(modelName(id))}${id === planned ? ` <span class="badge">${ran ? "Ran on this" : "Planned"}</span>` : ""}</span>
@@ -330,7 +330,21 @@ function jobPanel(job) {
 
 
 
-  return `<div class="job-panel">${phaseTable}<div class="panel-side">${misses}${models}</div></div>`;
+  // What the plan really cost, model by model (helpers and summarizing can run on other models).
+  const a = job.actual;
+  const split = a && Array.isArray(a.models) && a.models.length ? a.models : null;
+  const real = split ? `
+    <div class="panel-block">
+      <h4>Real cost by model${a.approximate ? " (approximate)" : ""}</h4>
+      <ul class="model-rows">${split.map((m) => `
+        <li>
+          <span class="model-label">${escape(modelName(m.model))}</span>
+          <span class="num">${m.cost === null ? "No price" : money(m.cost)}</span>
+        </li>`).join("")}
+      </ul>
+      ${a.approximate ? `<p class="panel-note">Worked out from what Cursor's hook reports, which leaves out some sizes, so it can be off by around 15%. Cursor's own usage page has the exact amount.</p>` : ""}
+    </div>` : "";
+  return `<div class="job-panel">${phaseTable}<div class="panel-side">${real}${misses}${models}</div></div>`;
 }
 
 function jobRow(job) {
@@ -377,7 +391,7 @@ function renderJobs() {
   if (jobs.length) parts.push(`${jobs.length} plan${jobs.length === 1 ? "" : "s"}${measured.length ? `, ${measured.some((j) => j.actual.approximate) ? "≈ " : ""}${money(total)} in real costs so far` : ""}.`);
   parts.push(fix.applied
     ? `Real costs have been ${fix.factor.toFixed(2)}× the estimates on average, so new estimates are corrected to match.`
-    : `Estimates start adjusting to your real costs after ${2 - fix.jobs} more finished plan${fix.jobs === 1 ? "" : "s"}.`);
+    : `Estimates start adjusting to your real costs after ${2 - fix.jobs} more finished plan${fix.jobs === 1 ? "" : "s"} with an exact cost.${fix.approximate ? " Approximate costs, like Cursor's, don't count." : ""}`);
   $("jobsSummary").textContent = parts.join(" ");
   renderConnect(); // shows which tools are connected
 }

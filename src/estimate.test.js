@@ -22,7 +22,7 @@ assert.ok(e.low < e.likely && e.likely < e.high, "range is ordered");
 assert.ok(e.peakContext > 100000 && !e.fitsContext, "24 likely steps reach about 108k, over 100k");
 assert.ok(estimatePlan(model, { ...plan, steps: 10 }).fitsContext, "a shorter plan fits");
 
-assert.deepStrictEqual(correction([]), { factor: 1, jobs: 0, applied: false });
+assert.deepStrictEqual(correction([]), { factor: 1, jobs: 0, approximate: 0, applied: false });
 const job = (likely, actual) => ({ estimates: { x: { likely } }, actual: { modelId: "x", costUsd: actual } });
 near(correction([job(1, 2), job(1, 0.5)]).factor, 1, "2x over and 2x under cancel out");
 near(correction([job(1, 2), job(2, 4)]).factor, 2, "consistent 2x");
@@ -30,6 +30,13 @@ assert.strictEqual(correction([job(1, 100), job(1, 100)]).factor, 5, "capped at 
 console.log("estimate tests passed");
 assert.strictEqual(correction([job(1, 2), job(1, 2), { ...job(1, 0.01), actual: { modelId: "x", costUsd: 0.01, status: "running" } }]).factor, 2, "running jobs don't count");
 console.log("running-job check passed");
+// Approximate real costs (Cursor) are left out: one 20x-off Cursor measurement mustn't skew every estimate.
+const approx = (likely, actual) => ({ estimates: { x: { likely } }, actual: { modelId: "x", costUsd: actual, approximate: true } });
+const mixed = correction([job(1, 2), job(1, 2), approx(1, 20)]);
+assert.strictEqual(mixed.factor, 2);
+assert.strictEqual(mixed.approximate, 1, "and counted as left out");
+assert.strictEqual(correction([approx(1, 2), approx(1, 2)]).applied, false, "approximate costs alone never adjust estimates");
+console.log("approximate-cost check passed");
 
 // Cache pricing: the 3-step plan above has 16k new tokens and 23k re-sent.
 const { agentCost, estimateJob, cacheWhatIf, describePhase, DEFAULT_CACHE_HIT } = require("./estimate");

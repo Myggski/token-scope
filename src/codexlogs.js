@@ -22,7 +22,7 @@ const path = require("path");
 const readline = require("readline");
 const zlib = require("zlib");
 const { Transform } = require("stream");
-const { findPricedModel, usageCost } = require("./claudelogs");
+const { byCost, findPricedModel, usageCost } = require("./claudelogs");
 const { estimateJob } = require("./estimate");
 const { commandKind } = require("./insights");
 const { wslHomes } = require("./wsl");
@@ -497,11 +497,12 @@ async function findCodexActuals(jobs, models, { home = codexHomes(), now = Date.
       }
     }
     let cost = 0, input = 0, cached = 0, written = 0, output = 0, mainModel = null, mainOutput = -1;
-    const unpriced = [];
+    const unpriced = [], perModel = [];
     for (const [name, u] of byModel) {
       const priced = findPricedModel(models, u.model);
       if (priced) cost += usageCost(priced, u) * u.factor;
       else unpriced.push(name);
+      perModel.push({ model: priced ? priced.id : u.model, cost: priced ? Number((usageCost(priced, u) * u.factor).toFixed(4)) : null });
       input += u.input + u.cacheRead + u.write5m;
       cached += u.cacheRead;
       written += u.write5m;
@@ -515,7 +516,7 @@ async function findCodexActuals(jobs, models, { home = codexHomes(), now = Date.
     const actual = {
       modelId: mainModel, costUsd: Number(cost.toFixed(4)), inputTokens: input, cachedTokens: cached, cacheWriteTokens: written,
       outputTokens: output, source: "codex", status: running ? "running" : "done", sessionId, sessions: homes.length,
-      lastActivity: new Date(last || first).toISOString(),
+      lastActivity: new Date(last || first).toISOString(), models: byCost(perModel),
       ...(unpriced.length ? { unpricedModels: unpriced } : {}),
     };
     const mainPriced = models.find((m) => m.id === mainModel);

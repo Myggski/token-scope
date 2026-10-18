@@ -119,6 +119,16 @@ function sumUsage(lineSets, start, end) {
 
 // Works out the actual cost of every job that ran in Claude Code and isn't finished yet.
 // Returns { [jobId]: { actual, addEstimate } } for the jobs that changed.
+// Real cost by model, most expensive first, with models that show up more than once added together.
+function byCost(list) {
+  const sums = new Map();
+  for (const m of list) {
+    const s = sums.get(m.model);
+    sums.set(m.model, { model: m.model, cost: s && s.cost === null ? null : m.cost === null ? null : Number(((s ? s.cost : 0) + m.cost).toFixed(4)) });
+  }
+  return [...sums.values()].sort((a, b) => (b.cost || 0) - (a.cost || 0));
+}
+
 async function findActuals(jobs, models, { folder, now = Date.now() } = {}) {
   // A job that went quiet may be picked up again, so keep checking for 2 days unless it was finished.
   const open = jobs.filter((j) =>
@@ -191,12 +201,13 @@ async function findActuals(jobs, models, { folder, now = Date.now() } = {}) {
     const start = first;
 
     let cost = 0, input = 0, cacheRead = 0, cacheWrite = 0, output = 0, mainModel = null, mainOutput = -1;
-    const unpriced = [];
+    const unpriced = [], perModel = [];
     for (const [logModel, u] of byModel) {
       if (!u.input && !u.cacheRead && !u.output && !u.write5m && !u.write1h) continue;
       const priced = findPricedModel(models, logModel);
       if (priced) cost += usageCost(priced, u);
       else unpriced.push(logModel);
+      perModel.push({ model: priced ? priced.id : logModel, cost: priced ? Number(usageCost(priced, u).toFixed(4)) : null });
       input += u.input + u.cacheRead + u.write5m + u.write1h;
       cacheRead += u.cacheRead;
       cacheWrite += u.write5m + u.write1h;
@@ -221,6 +232,7 @@ async function findActuals(jobs, models, { folder, now = Date.now() } = {}) {
       sessionId,
       sessions: lineSets.length,
       lastActivity: new Date(last || start).toISOString(),
+      models: byCost(perModel),
       ...(unpriced.length ? { unpricedModels: unpriced } : {}),
     };
     // So the job can count towards the correction factor even if this model wasn't compared.
@@ -254,4 +266,4 @@ async function syncActuals(store, models, options) {
   return ids.length;
 }
 
-module.exports = { syncActuals, findActuals, modelKey, logsFolder, logsFolders, listLogs, listAllLogs, parseLines, sumUsage, findPricedModel, usageCost };
+module.exports = { byCost, syncActuals, findActuals, modelKey, logsFolder, logsFolders, listLogs, listAllLogs, parseLines, sumUsage, findPricedModel, usageCost };
