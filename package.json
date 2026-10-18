@@ -28,7 +28,7 @@
   },
   "scripts": {
     "start": "electron .",
-    "test": "node src/estimate.test.js && node src/claudelogs.test.js && node src/history.test.js && node src/insights.test.js && node src/codexlogs.test.js && node src/archive.test.js && node src/opencode-wsl.test.js",
+    "test": "node src/estimate.test.js && node src/claudelogs.test.js && node src/history.test.js && node src/insights.test.js && node src/codexlogs.test.js && node src/archive.test.js && node src/opencode-wsl.test.js && node src/cursor-hook.test.js",
     "dist": "electron-builder --win nsis",
     "dist:portable": "electron-builder --win portable"
   },

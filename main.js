@@ -9,7 +9,7 @@ const { syncActuals, logsFolder, logsFolders } = require("./src/claudelogs");
 const { setJobModels } = require("./src/jobs");
 const { readClaudeCode, readCodex, readOpenCode, openCodeFound, readCursor, syncCursorActuals, syncOpenCodeActuals } = require("./src/history");
 const { codexHome, codexFound, syncCodexActuals } = require("./src/codexlogs");
-const { installHook, removeHook, hookInstalled, cursorFound, lastRecord, pruneRecords } = require("./src/cursorhook");
+const { installHook, removeHook, hookInstalled, cursorFound, lastRecord, lastProblem, problemsFile, pruneRecords } = require("./src/cursorhook");
 const { createChecks, checkOpenRouter } = require("./src/checks");
 const { withArchive, pruneArchive, clearArchive } = require("./src/archive");
 
@@ -125,7 +125,8 @@ const SOURCES = [
     note: (on) => on ? "On. TokenScope reads OpenCode's existing usage records." : "TokenScope reads OpenCode's existing usage records. No extra setup needed." },
   { id: "cursor", name: "Cursor", found: () => cursorFound(),
     note: (on, todo, recording) => !on ? "Cursor doesn't save usage records that TokenScope can read directly. Turn this on to add a small hook to Cursor that records usage as you work, even when TokenScope is closed. It records usage details, never your code, prompts, commands or AI replies. No restart needed. Costs are approximate, not exact amounts."
-      : todo ? "On, but TokenScope's hook is missing from Cursor's settings."
+      : todo && todo.kind === "missing" ? "On, but TokenScope's hook is missing from Cursor's settings."
+      : todo ? "On, but Cursor's steps aren't being saved."
       : recording ? "On and recording, also while TokenScope is closed. Costs are approximate."
       : "On. Your next Cursor conversation shows up in Spending." },
 ];
@@ -140,7 +141,13 @@ const keepDays = () => {
 function manualStep(id, on) {
   if (!on) return null;
   if (id === "cursor") {
-    if (!hookInstalled()) return { text: "Turn Cursor off and on again here to add it back.", help: "help-history" };
+    if (!hookInstalled()) return { kind: "missing", text: "Turn Cursor off and on again here to add it back.", help: "help-history" };
+    // The hook ran but couldn't save, and hasn't saved anything since.
+    const issue = lastProblem(app.getPath("userData"));
+    const saved = lastRecord(cursorRecords()) || 0;
+    if (issue && issue.t > saved && issue.t >= (on.since || 0)) {
+      return { kind: "problem", text: `Cursor's hook runs, but ${issue.problem}${issue.error ? ` (${issue.error})` : ""}. Turn Cursor off and on again here. If it keeps happening, the details are in hooks\\cursor-hook-problems.log in your data folder.`, help: "help-history" };
+    }
 
   }
   return null;
@@ -240,9 +247,13 @@ function startWindowApp() {
     if (kind === "settings") return store.update((data) => { data.settings = {}; });
     if (kind === "favorites") return store.update((data) => { data.favorites = []; });
     if (kind === "jobs") return store.update((data) => { data.jobs = []; });
-    if (kind === "cursor") return pruneRecords(cursorRecords(), 0, true);
+    if (kind === "cursor") {
+      fs.rmSync(problemsFile(app.getPath("userData")), { force: true });
+      return pruneRecords(cursorRecords(), 0, true);
+    }
     if (kind === "history") {
       clearArchive(app.getPath("userData"));
+      fs.rmSync(problemsFile(app.getPath("userData")), { force: true });
       return pruneRecords(cursorRecords(), 0, true);
     }
     if (kind === "all") {

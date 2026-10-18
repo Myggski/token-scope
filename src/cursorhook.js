@@ -80,6 +80,17 @@ function hookInstalled() {
   }
 }
 
+// The hook's latest problem (see cursor-hook.js), or null. The hook writes them next to its launcher.
+const problemsFile = (dataFolder) => path.join(dataFolder, "hooks", "cursor-hook-problems.log");
+function lastProblem(dataFolder) {
+  try {
+    const lines = fs.readFileSync(problemsFile(dataFolder), "utf8").trim().split("\n");
+    return JSON.parse(lines[lines.length - 1]);
+  } catch {
+    return null;
+  }
+}
+
 // When the hook last wrote a record, or null if never.
 function lastRecord(records) {
   try {
@@ -111,4 +122,4 @@ function pruneRecords(records, keepDays, all = false) {
   return removed;
 }
 
-module.exports = { installHook, removeHook, hookInstalled, cursorFound, hooksFile, lastRecord, pruneRecords, EVENTS, MARKER };
+module.exports = { installHook, removeHook, hookInstalled, cursorFound, hooksFile, lastRecord, lastProblem, problemsFile, pruneRecords, EVENTS, MARKER };
