@@ -53,11 +53,16 @@ jobs:
       - run: npm ci
       - name: Run the tests
         shell: bash
-        # Failing lines become notes on the run, readable without downloading the log.
+        # A failure becomes one note on the run, readable without downloading the log: what came after
+        # the last test that passed (GitHub shows at most 10 notes, so it's one note, not one per line).
         run: |
           set +e
           npm test > test.log 2>&1
           code=$?
           cat test.log
-          if [ $code -ne 0 ]; then tail -n 25 test.log | sed 's/^/::error::/'; fi
+          if [ $code -ne 0 ]; then
+            last=$(grep -n "passed" test.log | tail -n 1 | cut -d: -f1)
+            tail -n +$(( ${last:-0} + 1 )) test.log | grep -v "^> \|^$" | head -n 40 > failure.txt
+            echo "::error title=Tests failed::$(sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g' failure.txt)"
+          fi
           exit $code
