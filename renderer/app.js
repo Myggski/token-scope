@@ -747,7 +747,8 @@ function factsLine(c) {
   if (t.builds || t.tests) bits.push(`${t.builds || 0} builds and ${t.tests || 0} test runs${f.buildAndTestMinutes ? ` (${f.buildAndTestMinutes} min)` : ""}`);
   if (f.cacheExpiries && f.cacheExpiries.length) bits.push(`cache expired ${f.cacheExpiries.length}×`);
   if (f.peakContextTokens) bits.push(`grew to ${formatTokens(f.peakContextTokens)} tokens`);
-  if (f.helperCost >= 0.01) bits.push(`helper agents ${costText(f.helperCost, c.approximate)}`);
+  // Named when the tool names them (OpenCode subagents), so you can see which ones ran here.
+  if (f.helperCost >= 0.01 || (c.helpers && c.helpers.length)) bits.push(`${c.helpers && c.helpers.length ? `subagent${c.helpers.length === 1 ? "" : "s"} (${c.helpers.join(", ")})` : "helper agents"} ${costText(f.helperCost || 0, c.approximate)}`);
   return bits.join(" · ");
 }
 

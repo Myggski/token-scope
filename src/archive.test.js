@@ -49,6 +49,13 @@ assert.strictEqual(pruneArchive(folder, 365, now), 1);
 assert.strictEqual(pruneArchive(folder, 30, now), 1);
 assert.deepStrictEqual(Object.keys(readArchive(folder)), ["codex:b"]);
 
+// A subagent saved as its own conversation (before 1.0.7), now counted inside its parent: not shown twice.
+withArchive(folder, [conv("sub", "opencode", 3, 2)], { since: 0, tracked, keepDays: 0, now });
+assert.ok(readArchive(folder)["opencode:sub"]);
+const parent = { ...conv("main", "opencode", 3, 1), includes: ["opencode:sub"] };
+assert.deepStrictEqual(ids(withArchive(folder, [parent], { since: 0, tracked, keepDays: 0, now })).filter((x) => x.includes("sub")), [], "the old copy isn't shown");
+assert.ok(!readArchive(folder)["opencode:sub"], "and is removed");
+
 clearArchive(folder);
 assert.deepStrictEqual(readArchive(folder), {});
 fs.rmSync(folder, { recursive: true });

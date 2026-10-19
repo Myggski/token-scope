@@ -33,6 +33,9 @@ const T = Date.UTC(2026, 9, 1, 10, 0);
   db.run("INSERT INTO session_v2 VALUES ('s2', ?)", [JSON.stringify({ id: "s2", title: "New editor panel", directory: "/work/editor", time: { archived: T } })]);
   db.run("INSERT INTO session_message VALUES ('m1', 's1', 'assistant', 1, ?)", [msg("m1", "s1", "claude-sonnet-5-5", tok(1e6, 1e5, 0, 0), T)]); // 2.x copy of m1
   db.run("INSERT INTO session_message VALUES ('m2', 's2', 'assistant', 1, ?)", [JSON.stringify({ id: "m2", sessionID: "s2", role: "assistant", model: { id: "gpt-5.6", providerID: "openai" }, tokens: tok(0, 1e6, 1e6, 0, 1e6), time: { created: T + 60e3 } })]);
+  // A subagent (@code-reviewer) the first conversation started: a session of its own with s1 as parent.
+  db.run("INSERT INTO session_v2 VALUES ('s3', ?)", [JSON.stringify({ id: "s3", title: "Review changes (@code-reviewer subagent)", parentID: "s1", directory: "/work/game" })]);
+  db.run("INSERT INTO session_message VALUES ('m5', 's3', 'assistant', 1, ?)", [msg("m5", "s3", "claude-sonnet-5-5", tok(1e5, 1e4, 0, 0), T + 200e3)]);
   fs.writeFileSync(path.join(oc, "opencode.db"), Buffer.from(db.export()));
   fs.mkdirSync(path.join(oc, "storage", "message", "s1"), { recursive: true });
   fs.writeFileSync(path.join(oc, "storage", "message", "s1", "m3.json"), msg("m3", "s1", "claude-sonnet-5-5", tok(0, 0, 1e6, 1e6), T + 120e3));
@@ -45,7 +48,10 @@ const T = Date.UTC(2026, 9, 1, 10, 0);
   assert.strictEqual(s1.title, "Fix the loot table");
   assert.strictEqual(s1.project, "game");
   assert.ok(s2.archived && !s1.archived, "archived in OpenCode");
-  assert.strictEqual(Number(s1.cost.toFixed(4)), 3 + 2.7 + 0.42, "each message counted once; OpenCode's own cost for unpriced models");
+  assert.strictEqual(Number(s1.cost.toFixed(4)), 3 + 2.7 + 0.42 + 0.3, "each message counted once; OpenCode's own cost for unpriced models; the subagent included");
+  assert.deepStrictEqual(s1.helpers, ["Review changes (@code-reviewer subagent)"], "the subagent is part of the conversation that started it");
+  assert.ok(Math.abs(s1.insights.facts.helperCost - 0.3) < 1e-6);
+  assert.ok(!oconv.some((c) => c.id === "opencode:s3"), "not a conversation of its own");
   assert.strictEqual(Number(s2.cost.toFixed(4)), 16.1, "reasoning priced as output");
   assert.deepStrictEqual(checks.list(), [], "no warnings for the expected format");
   assert.ok(s1.insights && s1.insights.facts.steps === 3);

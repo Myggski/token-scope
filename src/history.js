@@ -321,7 +321,7 @@ async function loadOpenCode(folder, since, checks = NO_CHECKS) {
       for (const row of tableRows(db, table) || []) {
         const data = asJson(row.data) || {};
         const id = row.id || data.id;
-        if (id && !sessions.has(id)) sessions.set(id, { title: row.title || data.title || null, cwd: row.directory || data.directory || (data.path && data.path.cwd) || null, archived: !!(row.time_archived || (data.time && data.time.archived)) });
+        if (id && !sessions.has(id)) sessions.set(id, { title: row.title || data.title || null, cwd: row.directory || data.directory || (data.path && data.path.cwd) || null, archived: !!(row.time_archived || (data.time && data.time.archived)), parent: row.parent_id || row.parentID || data.parentID || data.parent_id || null });
       }
     }
     db.close();
@@ -359,7 +359,7 @@ async function loadOpenCode(folder, since, checks = NO_CHECKS) {
   });
   walk(path.join(storage, "session"), 3, (file) => {
     const data = asJson(fs.readFileSync(file, "utf8"));
-    if (data && data.id && !sessions.has(data.id)) sessions.set(data.id, { title: data.title || null, cwd: data.directory || null, archived: !!(data.time && data.time.archived) });
+    if (data && data.id && !sessions.has(data.id)) sessions.set(data.id, { title: data.title || null, cwd: data.directory || null, archived: !!(data.time && data.time.archived), parent: data.parentID || data.parent_id || null });
   });
   // Format checks: the message tables, and token counts on replies.
   if (databases.length && !knownTables && !jsonMessages) checks.mismatch("opencode", "Its database doesn't have the tables TokenScope reads, so OpenCode conversations are missing.");
@@ -381,6 +381,32 @@ async function loadAllOpenCode(folders, since, checks) {
   return { messages, sessions, marks };
 }
 
+// A subagent runs in a session of its own whose parent is the session that started it. Maps each
+// such session to the top conversation it belongs to (following parents of parents).
+function openCodeRoots(sessions) {
+  const rootOf = new Map();
+  for (const id of sessions.keys()) {
+    let root = id, seen = new Set([id]);
+    while (sessions.has(root) && sessions.get(root).parent && !seen.has(sessions.get(root).parent)) {
+      root = sessions.get(root).parent;
+      seen.add(root);
+    }
+    if (root !== id) rootOf.set(id, root);
+  }
+  return rootOf;
+}
+
+const addMessage = (byModel, own, m) => {
+  const u = byModel.get(m.model) || ZERO();
+  u.requests += 1;
+  u.input += m.tokens.input;
+  u.cacheRead += m.tokens.read;
+  u.write5m += m.tokens.write;
+  u.output += m.tokens.output;
+  byModel.set(m.model, u);
+  if (m.cost !== null) own.set(m.model, (own.get(m.model) || 0) + m.cost);
+};
+
 async function readOpenCode(models, since, { folder, checks = NO_CHECKS } = {}) {
   const { messages, sessions, marks } = await loadAllOpenCode(folder ? [folder] : openCodeFolders(), since, checks);
   const jobsBySession = new Map();
@@ -395,22 +421,37 @@ async function readOpenCode(models, since, { folder, checks = NO_CHECKS } = {}) 
     if (!bySession.has(m.session)) bySession.set(m.session, []);
     bySession.get(m.session).push(m);
   }
+  // Subagents' sessions are part of the conversation that started them (when that one is here).
+  const rootOf = openCodeRoots(sessions);
+  const helpersOf = new Map();
+  for (const id of bySession.keys()) {
+    const root = rootOf.get(id);
+    if (!root || !bySession.has(root)) continue;
+    if (!helpersOf.has(root)) helpersOf.set(root, []);
+    helpersOf.get(root).push(id);
+  }
   const out = [];
   for (const [id, list] of bySession) {
+    if (bySession.has(rootOf.get(id))) continue; // counted with the conversation that started it
     const byModel = new Map(), own = new Map();
     let start = Infinity, end = 0, cwd = null;
     for (const m of list) {
-      const u = byModel.get(m.model) || ZERO();
-      u.requests += 1;
-      u.input += m.tokens.input;
-      u.cacheRead += m.tokens.read;
-      u.write5m += m.tokens.write;
-      u.output += m.tokens.output;
-      byModel.set(m.model, u);
-      if (m.cost !== null) own.set(m.model, (own.get(m.model) || 0) + m.cost);
+      addMessage(byModel, own, m);
       start = Math.min(start, m.time);
       end = Math.max(end, m.time);
       cwd = cwd || m.cwd;
+    }
+    let helperCost = 0;
+    const helpers = helpersOf.get(id) || [];
+    const jobIds = new Set(jobsBySession.get(id) || []);
+    for (const helper of helpers) {
+      for (const m of bySession.get(helper)) {
+        addMessage(byModel, own, m);
+        const p = findPricedModel(models, m.model);
+        helperCost += p ? usageCost(p, { requests: 1, input: m.tokens.input, cacheRead: m.tokens.read, write5m: m.tokens.write, write1h: 0, output: m.tokens.output }) : m.cost || 0;
+        end = Math.max(end, m.time);
+      }
+      for (const job of jobsBySession.get(helper) || []) jobIds.add(job);
     }
     if (end < since) continue;
     const info = sessions.get(id) || {};
@@ -428,8 +469,9 @@ async function readOpenCode(models, since, { folder, checks = NO_CHECKS } = {}) 
     });
     out.push({
       id: `opencode:${id}`, tool: "opencode", title: info.title || "Untitled conversation",
-      project: info.cwd || cwd ? path.basename(info.cwd || cwd) : null, start, end, approximate: false, ...(info.archived ? { archived: true } : {}), jobIds: [...(jobsBySession.get(id) || [])], ...priced,
-      insights: analyze({ requests, tools: [], cacheMinutes: 5, total: priced.cost }),
+      project: info.cwd || cwd ? path.basename(info.cwd || cwd) : null, start, end, approximate: false, ...(info.archived ? { archived: true } : {}), jobIds: [...jobIds], ...priced,
+      ...(helpers.length ? { helpers: helpers.map((h) => (sessions.get(h) || {}).title || "Subagent"), includes: helpers.map((h) => `opencode:${h}`) } : {}),
+      insights: analyze({ requests, tools: [], cacheMinutes: 5, helperCost, total: priced.cost }),
     });
   }
   return out;
@@ -444,7 +486,8 @@ async function findOpenCodeActuals(jobs, models, { folder, now = Date.now() } = 
       (j.actual.status === "running" || (!j.endedAt && now - Date.parse(j.actual.lastActivity) < 2 * 86400e3)))));
   if (!open.length) return {};
   const since = Math.min(...open.map((j) => Date.parse(j.createdAt))) - 60e3;
-  const { messages, marks } = await loadAllOpenCode(folder ? [folder] : openCodeFolders(), since);
+  const { messages, marks, sessions } = await loadAllOpenCode(folder ? [folder] : openCodeFolders(), since);
+  const rootOf = openCodeRoots(sessions);
   const bySession = new Map();
   for (const m of messages.values()) {
     if (!bySession.has(m.session)) bySession.set(m.session, []);
@@ -461,16 +504,11 @@ async function findOpenCodeActuals(jobs, models, { folder, now = Date.now() } = 
       let end = job.endedAt && Date.parse(job.endedAt) > start ? Date.parse(job.endedAt) : Infinity;
       for (const mark of marks) if (mark.session === session && mark.id !== job.id && mark.t > start) end = Math.min(end, mark.t);
       const list = bySession.get(session) || [];
-      for (const m of list) {
+      // Subagents this session started while the job ran count too.
+      const helpers = [...bySession.keys()].filter((h) => rootOf.get(h) === session && !starts.has(h));
+      for (const m of list.concat(...helpers.map((h) => bySession.get(h)))) {
         if (!(m.time >= start && m.time < end)) continue;
-        const u = byModel.get(m.model) || ZERO();
-        u.requests += 1;
-        u.input += m.tokens.input;
-        u.cacheRead += m.tokens.read;
-        u.write5m += m.tokens.write;
-        u.output += m.tokens.output;
-        byModel.set(m.model, u);
-        if (m.cost !== null) own.set(m.model, (own.get(m.model) || 0) + m.cost);
+        addMessage(byModel, own, m);
         last = Math.max(last, m.time);
       }
       const latest = Math.max(0, ...list.map((m) => m.time));
@@ -836,8 +874,10 @@ function readCursor(models, since, { folder, checks = NO_CHECKS, cacheHit = CURS
     }, { startContext: startOffset(records), anchors: anchorsOf(info.get(id)) });
     // Helper agents: their own context, replayed separately, added to this conversation's cost.
     let helperCost = 0, end = records[records.length - 1].t;
+    const includes = [];
     for (const [child, parent] of parentOf) {
       if (parent !== id) continue;
+      includes.push(`cursor:${child}`);
       const helper = byConversation.get(child);
       replayCursor(helper, (part) => {
         cursorUsage(byModel, part.model, part, cacheHit);
@@ -859,7 +899,7 @@ function readCursor(models, since, { folder, checks = NO_CHECKS, cacheHit = CURS
     out.push({
       id: `cursor:${id}`, tool: "cursor", title: (info.get(id) || {}).name || (records.find((r) => r.title) || {}).title || "Cursor conversation",
       project: (records.find((r) => r.project) || {}).project || null,
-      start: records[0].t, end, approximate: true, ...((info.get(id) || {}).archived ? { archived: true } : {}), jobIds, ...priced,
+      start: records[0].t, end, approximate: true, ...((info.get(id) || {}).archived ? { archived: true } : {}), ...(includes.length ? { includes } : {}), jobIds, ...priced,
       insights: analyze({ requests, tools, cacheMinutes: 5, helperCost, total: priced.cost }),
     });
   }

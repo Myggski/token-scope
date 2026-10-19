@@ -38,6 +38,17 @@ const cutoff = (keepDays, now) => (keepDays > 0 ? now - keepDays * DAY : -Infini
 function withArchive(folder, live, { since, tracked, keepDays, now = Date.now() }) {
   const saved = readArchive(folder);
   let changed = false;
+  // A subagent's or helper's session that's now counted inside the conversation that started it
+  // (c.includes) was saved as a conversation of its own by an older version: drop that copy, or
+  // it would show up again and count twice.
+  for (const c of live) {
+    for (const id of c.includes || []) {
+      if (saved[id]) {
+        delete saved[id];
+        changed = true;
+      }
+    }
+  }
   for (const c of live) {
     if (!SAVED_TOOLS.has(c.tool)) continue;
     const old = saved[c.id];
