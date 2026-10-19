@@ -1,13 +1,10 @@
-**Download** `TokenScope-Setup-1.0.8.exe` below and run it. If you have 1.0.7, TokenScope offers this update by itself.
+**Download** `TokenScope-Setup-1.0.9.exe` below and run it. If you have 1.0.7 or newer, TokenScope offers this update by itself.
 
 Windows shows a warning for apps it doesn't recognise yet, which is normal for small personal projects like this. Click **More info** and then **Run anyway**.
 
-**New: Zed**
-- TokenScope now reads the conversations of Zed's own AI agent, with exact costs, and older ones too. Turn Zed on under Track AI spending.
-- Zed saves one total per conversation, so Spending can't show what drove a Zed conversation's cost, and a plan made in a Zed chat costs the whole chat.
+**Forks are counted once**
+- Forking a conversation (OpenCode's /fork, or resuming or forking a Claude Code session) copies the conversation so far. That copy used to be counted again, so forks looked as expensive as the original. Now the original keeps its cost and the fork shows only what happened after it. Codex forks already worked this way.
+- This holds even after the original is deleted, by you or by Claude Code's 30-day cleanup.
 
-**Also**
-- Your version number is at the bottom of Settings & help.
-- The copy of TokenScope your AI tools run is refreshed safely every time TokenScope starts.
-- The setup steps say to start a new conversation after connecting, as one that was already open doesn't get TokenScope.
-- Settings & help explains what TokenScope changes outside its own folder.
+**Warnings instead of wrong numbers**
+- If Zed changes how it saves conversations, or Cursor's own chat data changes, TokenScope now shows a "data mismatch" warning instead of quietly showing missing or wrong costs.
