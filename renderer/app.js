@@ -517,14 +517,14 @@ function aiTools(c) {
       name: "Claude Code", agent: true, measured: true,
       use: { how: "Type this, followed by what you want done:", command: "/mcp__tokenscope__estimate" },
       steps: ["Run this in a terminal:"], snippet: claudeAdd,
-      restart: "Restart Claude Code.",
+      restart: "Restart Claude Code. A conversation that was already open doesn't get TokenScope, so start a new one.",
       hint: `In Claude Code, add the server by running:\n${claudeAdd}`,
     },
     cursor: {
       name: "Cursor", agent: true,
       use: { how: "In the Agent chat, type / and pick estimate (from tokenscope), then describe what you want done:", command: "/estimate" },
       steps: [`Open ${file(".cursor", "mcp.json")} (create it if it doesn't exist) and add this. ${merge}`], snippet: mcpServers,
-      restart: "Check Cursor Settings → MCP: tokenscope should be listed and switched on.",
+      restart: "Check Cursor Settings → MCP: tokenscope should be listed and switched on. Then start a new chat, since an open one doesn't get TokenScope.",
       hint: `In Cursor, MCP servers go in ${file(".cursor", "mcp.json")}, in this format:\n${mcpServers}`,
     },
     "claude-desktop": {
@@ -545,20 +545,20 @@ function aiTools(c) {
     opencode: {
       name: "OpenCode", agent: true, measured: true,
       steps: [`Add this to ${file(".config", "opencode", "opencode.json")}, or opencode.jsonc if that's the one you have (create opencode.json if neither exists). If it already has an "mcp" section, add the tokenscope entry inside it.`], snippet: opencode,
-      restart: "Restart OpenCode.",
+      restart: "Restart OpenCode and start a new conversation. A conversation that was already open doesn't get TokenScope, even when /mcp shows it connected.",
       hint: `In OpenCode, MCP servers go in ${file(".config", "opencode", "opencode.json")} (or opencode.jsonc, if that's the file that exists), in this format:\n${opencode}`,
     },
     zed: {
       name: "Zed", agent: true, measured: true,
       steps: [`Open Zed's settings (${zedSettings}, or in Zed: Settings → Open Settings File) and add this. If it already has a "context_servers" section, add the tokenscope entry inside it.`], snippet: zed,
-      restart: "Check the Agent panel's settings in Zed: tokenscope should be listed under MCP servers and switched on.",
+      restart: "Check the Agent panel's settings in Zed: tokenscope should be listed under MCP servers and switched on. Then start a new thread, since an open one doesn't get TokenScope.",
       hint: `In Zed, MCP servers go under "context_servers" in ${zedSettings}, in this format:\n${zed}`,
     },
     other: {
       name: "Other", agent: true, other: true,
       steps: ["Any AI tool that supports MCP servers (VS Code, Windsurf, Gemini CLI and others) can use TokenScope. Add a local (stdio) MCP server with these settings." + (hasEnv ? " The environment variable matters: without it TokenScope opens as a window instead of talking to the AI." : "")],
       snippet: fields,
-      restart: "Restart the tool if it asks.",
+      restart: "Restart the tool if it asks, and start a new conversation.",
       hint: "",
     },
   };
