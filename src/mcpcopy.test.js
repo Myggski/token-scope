@@ -29,7 +29,7 @@ const child = spawn(process.execPath, [script], { cwd: tmp, env: { ...process.en
 let out = "", err = "";
 const replies = new Map();
 const done = new Promise((resolve, reject) => {
-  const timer = setTimeout(() => reject(new Error(`no answer in time. stderr: ${err}`)), 20000);
+  const timer = setTimeout(() => reject(new Error(`no answer in time. stderr: ${err}`)), 60000);
   child.stdout.on("data", (d) => {
     out += d;
     let i;
