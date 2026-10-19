@@ -370,10 +370,8 @@ function jobRow(job) {
   return `
     <tr class="job-row${open ? " is-open" : ""}">
       <td class="wrap-text">
-        <span class="model-name">${escape(job.title)}</span>${status}<span class="provider">${escape(details)}</span>
-        <button class="toggle-button" type="button" data-toggle-job="${escape(job.id)}" aria-expanded="${open}" aria-controls="${panelId}">
-          <span class="chevron" aria-hidden="true"></span>Details <span class="muted">· ${phases}${count} model${count === 1 ? "" : "s"}</span>
-        </button>
+        <button class="row-toggle" type="button" data-toggle-job="${escape(job.id)}" aria-expanded="${open}" aria-controls="${panelId}"><span class="chevron" aria-hidden="true"></span><span class="model-name">${escape(job.title)}</span></button>${status}
+        <span class="provider row-meta">${escape([details, `${phases}${count} model${count === 1 ? "" : "s"}`].filter(Boolean).join(" · "))}</span>
       </td>
       ${estimateCell(job)}
       ${actualCell(job)}
@@ -887,8 +885,8 @@ function conversationRow(c) {
   return `
     <tr class="job-row${open ? " is-open" : ""}">
       <td class="wrap-text">
-        <span class="model-name">${escape(c.title)}</span><span class="badge">${escape(TOOL_NAMES[c.tool] || c.tool)}</span>${c.archived ? `<span class="badge" title="Archived in ${escape(TOOL_NAMES[c.tool] || c.tool)}. Its cost still counts.">Archived</span>` : ""}<span class="provider">${escape(meta)}</span>
-        <button class="toggle-button" type="button" data-toggle-conv="${escape(c.id)}" aria-expanded="${open}" aria-controls="${panelId}"><span class="chevron" aria-hidden="true"></span>Details</button>
+        <button class="row-toggle" type="button" data-toggle-conv="${escape(c.id)}" aria-expanded="${open}" aria-controls="${panelId}"><span class="chevron" aria-hidden="true"></span><span class="model-name">${escape(c.title)}</span></button><span class="badge">${escape(TOOL_NAMES[c.tool] || c.tool)}</span>${c.archived ? `<span class="badge" title="Archived in ${escape(TOOL_NAMES[c.tool] || c.tool)}. Its cost still counts.">Archived</span>` : ""}
+        <span class="provider row-meta">${escape(meta)}</span>
       </td>
       <td class="num">${costText(c.cost, c.approximate)}${costNotes(c)}</td>
     </tr>
@@ -1113,8 +1111,17 @@ $("jobRows").addEventListener("submit", (event) => {
   if (id) changeJobModels(form.dataset.addModel, (ids) => [...ids, id]);
 });
 
+// A click anywhere on a plan's or conversation's row opens it, like its › button (other buttons,
+// links, fields and selected text excepted).
+function rowToggle(event, attr) {
+  if (event.target.closest(`[${attr}]`)) return event.target.closest(`[${attr}]`);
+  const row = event.target.closest("tr.job-row");
+  if (!row || event.target.closest("button, a, input, select, label, .info") || String(window.getSelection())) return null;
+  return row.querySelector(`[${attr}]`);
+}
+
 $("jobRows").addEventListener("click", async (event) => {
-  const toggle = event.target.closest("[data-toggle-job]");
+  const toggle = rowToggle(event, "data-toggle-job");
   if (toggle) return toggleJob(toggle.dataset.toggleJob);
 
   const plan = event.target.closest("[data-plan-model]");
@@ -1232,7 +1239,7 @@ $("historyRows").addEventListener("click", (event) => {
     state.subagentsShown.set(id, (state.subagentsShown.get(id) || PAGE_SMALL) + PAGE_SMALL);
     return renderHistory();
   }
-  const t = event.target.closest("[data-toggle-conv]");
+  const t = rowToggle(event, "data-toggle-conv");
   if (!t) return;
   const id = t.dataset.toggleConv;
   if (state.openConversations.has(id)) state.openConversations.delete(id);

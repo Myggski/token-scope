@@ -380,3 +380,19 @@ table.mini tr:last-child td { border-bottom: 0; }
 .expander-body .model-rows.subagent-rows li { padding-right: 0; }
 /* #historyOn sets the main list's footer 8px higher; this one sits right under its rows, its line where a row line would be. */
 #historyOn .expander-body .list-footer { margin-top: 0; padding-top: 16px; border-top: 1px solid var(--line); }
+
+/* ---------- Opening a row: plans, conversations and subagents work the same ----------
+   A › before the name; a click anywhere on the row opens it; what opens shares the row's box. */
+.row-toggle { display: inline-flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.row-toggle .chevron { flex: none; margin: 0 4px 0 2px; }
+.row-toggle[aria-expanded="true"] .chevron { transform: translateY(-2px) rotate(45deg); }
+.row-meta { padding-left: 22px; }
+tr.job-row { cursor: pointer; }
+tr.job-row:hover > td { background: color-mix(in srgb, var(--fg) 3%, transparent); }
+tr.job-row.is-open > td, tr.job-row.is-open + tr.panel-row > td { background: color-mix(in srgb, var(--fg) 5%, transparent); }
+tr.job-row.is-open > td { border-bottom: 0; }
+tr.job-row.is-open > td:first-child, tr.job-row.is-open + tr.panel-row > td { box-shadow: inset 3px 0 0 var(--accent); }
+tr.panel-row > td { padding: 4px 16px 16px 38px; }
+.job-panel { background: none; padding: 0; }
+/* Open subagents: the same green line on the left as an open plan or conversation. */
+.expander.is-open { box-shadow: inset 3px 0 0 var(--accent); }
