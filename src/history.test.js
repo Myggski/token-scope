@@ -256,3 +256,46 @@ const T = Date.UTC(2026, 9, 1, 10, 0);
   fs.rmSync(oc, { recursive: true, force: true });
   console.log("opencode deleted-original tests passed");
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// Several forks: two forks of one original, a fork of a fork, and the original continued afterwards.
+// Every reply counts once, where it happened. With and without OpenCode's fork link.
+{
+  const { dropForkCopies } = require("./history");
+  const r = (id, session, time, out) => [id, { id, session, model: "m", time, tokens: { input: 100, output: out, read: 0, write: 0 } }];
+  const build = () => new Map([
+    r("o1", "main", 1000, 1), r("o2", "main", 2000, 2), r("o3", "main", 30000, 3), // o3: back in the original later
+    r("a1", "forkA", 1000, 1), r("a2", "forkA", 2000, 2), r("a3", "forkA", 11000, 4), // forkA made at 10000
+    r("b1", "forkB", 1000, 1), r("b2", "forkB", 2000, 2), r("b3", "forkB", 21000, 5), // forkB made at 20000
+    r("c1", "forkC", 1000, 1), r("c2", "forkC", 2000, 2), r("c3", "forkC", 11000, 4), r("c4", "forkC", 26000, 6), // fork of forkA at 25000
+  ]);
+  const own = ["c4", "o1", "o2", "o3", "a3", "b3"].sort();
+  const plain = build();
+  dropForkCopies(plain, new Map([["main", { created: 900 }], ["forkA", { created: 10000 }], ["forkB", { created: 20000 }], ["forkC", { created: 25000 }]]));
+  assert.deepStrictEqual([...plain.keys()].sort(), own, "copies by time and tokens");
+  const linked = build();
+  dropForkCopies(linked, new Map([["main", { created: 900 }], ["forkA", { created: 10000, forkOf: "main" }], ["forkB", { created: 20000, forkOf: "main" }], ["forkC", { created: 25000, forkOf: "forkA" }]]));
+  assert.deepStrictEqual([...linked.keys()].sort(), own, "and by OpenCode's fork link");
+  console.log("several forks tests passed");
+}
+
+// Claude Code: the same with reply ids, in four session files.
+(async () => {
+  const { readClaudeCode } = require("./history");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ts-cc-forks-"));
+  fs.mkdirSync(path.join(dir, "p"));
+  const at = (min) => new Date(Date.UTC(2026, 9, 19, 9, 0) + min * 60e3).toISOString();
+  const reply = (id, min, sid) => JSON.stringify({ type: "assistant", timestamp: at(min), sessionId: sid, message: { id, model: "claude-sonnet-5-5", usage: { input_tokens: 1e6, output_tokens: 0 } } });
+  const write = async (name, lines) => {
+    fs.writeFileSync(path.join(dir, "p", `${name}.jsonl`), lines.join("\n") + "\n");
+    await new Promise((res) => setTimeout(res, 30)); // created one after the other
+  };
+  await write("main", [reply("m1", 1, "main"), reply("m2", 2, "main"), reply("m9", 90, "main")]);
+  await write("forkA", [reply("m1", 1, "forkA"), reply("m2", 2, "forkA"), reply("a1", 20, "forkA")]);
+  await write("forkB", [reply("m1", 1, "forkB"), reply("m2", 2, "forkB"), reply("b1", 40, "forkB")]);
+  await write("forkC", [reply("m1", 1, "forkC"), reply("m2", 2, "forkC"), reply("a1", 20, "forkC"), reply("c1", 60, "forkC")]);
+  const models = [{ id: "anthropic/claude-sonnet-5.5", inPerM: 2, outPerM: 10, cachedPerM: 0.2, cacheWritePerM: 2.5 }];
+  const cost = Object.fromEntries((await readClaudeCode(models, 0, { folder: dir })).map((c) => [c.id.replace("claude-code:", ""), Math.round(c.cost)]));
+  assert.deepStrictEqual(cost, { main: 6, forkA: 2, forkB: 2, forkC: 2 }, "each reply counted once: 3 in main, 1 in each fork");
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log("claude code several forks tests passed");
+})().catch((e) => { console.error(e); process.exit(1); });
