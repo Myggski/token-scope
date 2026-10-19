@@ -48,9 +48,18 @@ function trimmed(c, old) {
   return old.replyIds.length > c.replyIds.length && c.replyIds.every((id) => had.has(id));
 }
 
-function withArchive(folder, live, { since, tracked, keepDays, now = Date.now() }) {
+function withArchive(folder, liveAll, { since, tracked, keepDays, now = Date.now() }) {
   const saved = readArchive(folder);
   let changed = false;
+  // copyOnly: a fork that still exists but has nothing of its own. It isn't shown, and a saved summary
+  // of it (an older version counted its copies) is removed instead of shown in its place.
+  const live = liveAll.filter((c) => !c.copyOnly);
+  for (const c of liveAll) {
+    if (c.copyOnly && saved[c.id]) {
+      delete saved[c.id];
+      changed = true;
+    }
+  }
   // A subagent's or helper's session that's now counted inside the conversation that started it
   // (c.includes) was saved as a conversation of its own by an older version: drop that copy, or
   // it would show up again and count twice.
@@ -84,7 +93,7 @@ function withArchive(folder, live, { since, tracked, keepDays, now = Date.now() 
   }
   if (changed) writeArchive(folder, saved);
 
-  const liveIds = new Set(live.map((c) => c.id));
+  const liveIds = new Set(liveAll.map((c) => c.id));
   const kept = Object.values(saved).filter((c) => !liveIds.has(c.id) && tracked.has(c.tool) && c.end >= since).map((c) => ({ ...c, saved: true }));
   // A live conversation that's only the end of a saved one shows the saved, fuller summary.
   const shown = live.map((c) => (trimmed(c, saved[c.id]) ? { ...saved[c.id], saved: true } : c));

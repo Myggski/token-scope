@@ -206,7 +206,8 @@ const T = Date.UTC(2026, 9, 1, 10, 0);
   assert.strictEqual(b.start, Date.parse(at(61)), "and starts at its own first reply");
   // Only a copy, nothing new yet: not shown.
   write("c.jsonl", [user(0), reply("msg_1", 1, 1e6, 1e5)], "c");
-  assert.ok(!(await readClaudeCode(models, 0, { folder: dir })).some((c) => c.id === "claude-code:c"));
+  const onlyCopy = (await readClaudeCode(models, 0, { folder: dir })).find((c) => c.id === "claude-code:c");
+  assert.ok(onlyCopy && onlyCopy.copyOnly && !onlyCopy.cost, "present but with nothing of its own (not shown; see archive.js)");
   fs.rmSync(dir, { recursive: true, force: true });
   console.log("claude code fork tests passed");
 })().catch((e) => { console.error(e); process.exit(1); });

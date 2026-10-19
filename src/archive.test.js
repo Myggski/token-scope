@@ -71,3 +71,18 @@ clearArchive(folder);
 assert.deepStrictEqual(readArchive(folder), {});
 fs.rmSync(folder, { recursive: true });
 console.log("saved history tests passed");
+
+// A fork that still exists but has nothing of its own: its outdated saved summary (copies counted by
+// an older version) is removed, not shown as "no longer in OpenCode".
+{
+  const { withArchive: merge, readArchive: read, clearArchive: clear } = require("./archive");
+  const f = fs.mkdtempSync(path.join(os.tmpdir(), "ts-archive-copyonly-"));
+  const n = Date.now();
+  merge(f, [{ id: "opencode:fork", tool: "opencode", title: "Plan (fork #1)", start: n - 3600e3, end: n - 1000, cost: 43.7, models: [], jobIds: [] }], { since: 0, tracked: new Set(["opencode"]), keepDays: 0, now: n });
+  const shownNow = merge(f, [{ id: "opencode:fork", tool: "opencode", copyOnly: true }], { since: 0, tracked: new Set(["opencode"]), keepDays: 0, now: n });
+  assert.deepStrictEqual(shownNow, [], "not shown, and no placeholder either");
+  assert.ok(!read(f)["opencode:fork"], "the outdated saved summary is gone");
+  clear(f);
+  fs.rmSync(f, { recursive: true, force: true });
+  console.log("copy-only fork tests passed");
+}

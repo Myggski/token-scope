@@ -149,7 +149,7 @@ startMcp({
       return { conversations: withArchive(folder, conversations, { since, tracked, keepDays }), warnings: checks.list() };
     } catch (error) {
       console.error("Saved history:", error.message);
-      return { conversations, warnings: checks.list() };
+      return { conversations: conversations.filter((c) => !c.copyOnly), warnings: checks.list() };
     }
   },
   onClose: () => process.exit(0),

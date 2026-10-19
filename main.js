@@ -217,7 +217,7 @@ async function historyList(days = keepDays()) {
   await attempt("cursor", async () => readCursor(currentModels, since, { folder: cursorRecords(), checks }));
   // Saves summaries and adds the ones whose records the tool has deleted since (see archive.js).
   const tracked = new Set(Object.keys(on).filter((id) => on[id]));
-  let list = all;
+  let list = all.filter((c) => !c.copyOnly); // used if saved history can't be read
   try {
     list = withArchive(app.getPath("userData"), all, { since, tracked, keepDays: keepDays() });
   } catch (error) {

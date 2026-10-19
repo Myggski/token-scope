@@ -182,7 +182,8 @@ async function readClaudeCode(models, since, { folder, checks = NO_CHECKS, saved
       // Rare (a resumed or forked session): read again and leave the copies out. Not cached, as it depends on other sessions.
       const { lines, helperLines } = await x.read();
       const summary = summarizeClaude(x.log, lines, helperLines, models, copied);
-      if (summary) out.push(summary);
+      // Only a copy, nothing of its own: present all the same (see archive.js copyOnly).
+      out.push(summary || { id: x.hit.convId, tool: "claude-code", copyOnly: true });
     }
   }
   if (assistants >= 10 && withUsage / assistants < 0.5) {
@@ -432,8 +433,11 @@ async function loadAllOpenCode(folders, since, checks) {
     for (const [id, info] of part.sessions) if (!sessions.has(id)) sessions.set(id, info);
     marks.push(...part.marks);
   }
+  const before = new Set([...messages.values()].map((m) => m.session));
   dropForkCopies(messages, sessions);
-  return { messages, sessions, marks };
+  const after = new Set([...messages.values()].map((m) => m.session));
+  const copyOnly = [...before].filter((id) => !after.has(id)); // forks with nothing of their own (yet)
+  return { messages, sessions, marks, copyOnly };
 }
 
 // A fork (/fork in OpenCode) starts a new session with a copy of the conversation so far. The copied
@@ -518,7 +522,7 @@ const openCodePrint = (m) => `oc|${m.time}|${m.model}|${m.tokens.input}|${m.toke
 // savedOwners: fingerprint -> the conversation that counted it, from TokenScope's saved summaries. If
 // you deleted that conversation in OpenCode, a fork still has copies of its replies; they don't count again.
 async function readOpenCode(models, since, { folder, checks = NO_CHECKS, savedOwners = new Map() } = {}) {
-  const { messages, sessions, marks } = await loadAllOpenCode(folder ? [folder] : openCodeFolders(), since, checks);
+  const { messages, sessions, marks, copyOnly } = await loadAllOpenCode(folder ? [folder] : openCodeFolders(), since, checks);
   const jobsBySession = new Map();
   for (const mark of marks) {
     if (!jobsBySession.has(mark.session)) jobsBySession.set(mark.session, new Set());
@@ -543,7 +547,10 @@ async function readOpenCode(models, since, { folder, checks = NO_CHECKS, savedOw
         return !(owner && owner !== mine && !live.has(owner));
       });
       if (kept.length) bySession.set(session, kept);
-      else bySession.delete(session);
+      else {
+        bySession.delete(session);
+        copyOnly.push(session);
+      }
     }
   }
   const helpersOf = new Map();
@@ -603,6 +610,9 @@ async function readOpenCode(models, since, { folder, checks = NO_CHECKS, savedOw
       insights: analyze({ requests, tools: [], cacheMinutes: 5, helperCost, total: priced.cost }),
     });
   }
+  // Forks that still exist but have nothing of their own: present, so an outdated saved summary of
+  // them (copies counted, from before 1.0.9) isn't shown in their place (see archive.js).
+  for (const id of new Set(copyOnly)) if (!rootOf.has(id) || !bySession.has(rootOf.get(id))) out.push({ id: `opencode:${id}`, tool: "opencode", copyOnly: true });
   return out;
 }
 
