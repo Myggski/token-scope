@@ -398,3 +398,7 @@ tr.panel-row > td { padding: 4px 16px 16px 38px; }
 .expander.is-open { box-shadow: inset 3px 0 0 var(--accent); }
 /* The version, quietly at the end of Settings & help. */
 .app-version { margin: 32px 0 8px; color: var(--muted); font-size: 12px; line-height: 16px; text-align: center; }
+/* Spending's search: the same field as Models' (with the same × to clear), a little wider. */
+.history-search-row { margin: 0 0 12px; }
+.history-search-row .search { width: 24rem; }
+mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: inherit; border-radius: 2px; padding: 0 1px; }

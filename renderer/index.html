@@ -116,6 +116,9 @@
         <div id="historyTotals" class="tiles totals"></div>
         <div id="historyTools" class="chips" role="radiogroup" aria-label="Show tool"></div>
         <div id="historyProviders" class="chips" role="radiogroup" aria-label="Show models from"></div>
+        <div class="control-row history-search-row">
+          <input id="historySearch" class="search" type="search" placeholder="Search conversations" aria-label="Search conversations" spellcheck="false" autocomplete="off">
+        </div>
         <div class="tablebox">
           <table class="compact history-table">
             <thead>
@@ -310,6 +313,7 @@
   <div id="snackbars" class="snackbars" role="status" aria-live="polite"></div>
   <script src="../src/models.js"></script>
   <script src="../src/estimate.js"></script>
+  <script src="../src/search.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

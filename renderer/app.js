@@ -37,6 +37,7 @@ const state = {
   historyProvider: "all", // Spending's model maker filter (Anthropic, OpenAI…)
   compareModels: null, // models a conversation is re-priced on in Spending; null = your favorites
   historyShown: PAGE,
+  historySearch: "", // Spending's search (not remembered between launches)
   historyLayout: { tools: false, makers: false }, // which Spending filter rows the last load had (space kept while loading)
   openConversations: new Set(),
   subagentsShown: new Map(), // conversation id -> how many subagent rows its Details show
@@ -893,17 +894,34 @@ function costNotes(c) {
   return notes.length ? `<span class="sub-value">${notes.join(" · ")}</span>` : "";
 }
 
+// The smaller text under a conversation's name. Listed by when it was last active (a resumed
+// conversation can run for days), so that's the date shown.
+function conversationMeta(c) {
+  const subagents = c.helpers && c.helpers.length ? `${c.helpers.length} subagent${c.helpers.length === 1 ? "" : "s"}` : null;
+  return [c.project, `last active ${formatWhen(c.end)}`, formatDuration(c.end - c.start), c.models.map(historyModelName).join(", "), subagents].filter(Boolean).join(" · ");
+}
+
+// Text with the searched words marked, escaped.
+function marked(text) {
+  const q = state.historySearch.trim();
+  if (!q) return escape(text);
+  let out = "", at = 0;
+  for (const [a, b] of window.ConversationSearch.highlights(text, q)) {
+    out += escape(text.slice(at, a)) + `<mark>${escape(text.slice(a, b))}</mark>`;
+    at = b;
+  }
+  return out + escape(text.slice(at));
+}
+
 function conversationRow(c) {
   const open = state.openConversations.has(c.id);
-  // Listed by when it was last active (a resumed conversation can run for days), so that's the date shown.
-  const subagents = c.helpers && c.helpers.length ? `${c.helpers.length} subagent${c.helpers.length === 1 ? "" : "s"}` : null;
-  const meta = [c.project, `last active ${formatWhen(c.end)}`, formatDuration(c.end - c.start), c.models.map(historyModelName).join(", "), subagents].filter(Boolean).join(" · ");
+  const meta = conversationMeta(c);
   const panelId = `conv-${c.id.replace(/[^a-z0-9-]/gi, "_")}`;
   return `
     <tr class="job-row${open ? " is-open" : ""}">
       <td class="wrap-text">
-        <button class="row-toggle" type="button" data-toggle-conv="${escape(c.id)}" aria-expanded="${open}" aria-controls="${panelId}"><span class="chevron" aria-hidden="true"></span><span class="model-name">${escape(c.title)}</span></button><span class="badge">${escape(TOOL_NAMES[c.tool] || c.tool)}</span>${c.archived ? `<span class="badge" title="Archived in ${escape(TOOL_NAMES[c.tool] || c.tool)}. Its cost still counts.">Archived</span>` : ""}
-        <span class="provider row-meta">${escape(meta)}</span>
+        <button class="row-toggle" type="button" data-toggle-conv="${escape(c.id)}" aria-expanded="${open}" aria-controls="${panelId}"><span class="chevron" aria-hidden="true"></span><span class="model-name">${marked(c.title)}</span></button><span class="badge">${escape(TOOL_NAMES[c.tool] || c.tool)}</span>${c.archived ? `<span class="badge" title="Archived in ${escape(TOOL_NAMES[c.tool] || c.tool)}. Its cost still counts.">Archived</span>` : ""}
+        <span class="provider row-meta">${marked(meta)}</span>
       </td>
       <td class="num">${costText(c.cost, c.approximate)}${costNotes(c)}</td>
     </tr>
@@ -977,16 +995,27 @@ function renderHistory() {
     return `<button type="button" class="chip radio" role="radio" data-history-provider="${escape(p)}" aria-checked="${p === state.historyProvider}" tabindex="${p === state.historyProvider ? 0 : -1}"${used ? "" : " disabled"}>${escape(label)}</button>`;
   }).join("");
   // With a maker picked: the conversations that used its models, counting only their part.
-  const list = state.historyProvider === "all" ? byTool : byTool.map((c) => {
+  let list = state.historyProvider === "all" ? byTool : byTool.map((c) => {
     const mine = c.models.filter((m) => providerOf(m) === state.historyProvider);
     if (!mine.length) return null;
     return { ...c, cost: mine.reduce((s, m) => s + (m.cost || 0), 0), partOf: c.cost, unpriced: mine.some((m) => m.cost === null) };
   }).filter(Boolean);
+  // Search: every conversation, not just the ones shown; name matches first (see search.js). The
+  // totals follow it, so they say what the conversations you searched for cost.
+  const query = state.historySearch.trim();
+  if (query) {
+    const items = list.map((c) => ({
+      title: c.title,
+      details: [conversationMeta(c), TOOL_NAMES[c.tool] || c.tool, c.archived ? "archived" : "", formatDate(c.end), ...(c.helpers || []).map((h) => h.title)].join(" · "),
+    }));
+    list = window.ConversationSearch.searchConversations(items, query).map((h) => list[h.index]);
+  }
   $("historyTotals").innerHTML = historyTotals(list);
   const visible = list.slice(0, state.historyShown);
   $("historyRows").innerHTML = visible.length ? visible.map(conversationRow).join("")
+    : query ? emptyRow(2, `No conversations match "${query}".`, { attr: "data-clear-history-search", label: "Clear search" })
     : emptyRow(2, "Nothing here yet. Conversations show up here as you use your tracked AI tools.");
-  $("historyCount").textContent = list.length ? `Showing ${visible.length} of ${list.length} conversations.` : "";
+  $("historyCount").textContent = list.length ? `Showing ${visible.length} of ${list.length} ${query ? "matching " : ""}conversations.` : "";
   const more = Math.min(PAGE, list.length - visible.length);
   $("historyMore").hidden = more <= 0;
   $("historyMore").textContent = `Show ${more} more`;
@@ -1195,6 +1224,25 @@ $("historyKeep").addEventListener("change", async (event) => {
   await api.setHistoryKeep(days);
   state.history = null;
   if (state.view === "history") loadHistory();
+});
+
+// Search as you type, a moment after the last key, from the top of the list.
+let historySearchTimer = null;
+$("historySearch").addEventListener("input", (event) => {
+  clearTimeout(historySearchTimer);
+  historySearchTimer = setTimeout(() => {
+    state.historySearch = event.target.value;
+    state.historyShown = PAGE;
+    if (state.history) renderHistory();
+  }, 120);
+});
+$("historyRows").addEventListener("click", (event) => {
+  if (!event.target.closest("[data-clear-history-search]")) return;
+  $("historySearch").value = "";
+  state.historySearch = "";
+  state.historyShown = PAGE;
+  renderHistory();
+  $("historySearch").focus();
 });
 
 $("historyProviders").addEventListener("click", (event) => {
