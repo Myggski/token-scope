@@ -33,6 +33,11 @@ const T = Date.UTC(2026, 9, 1, 10, 0);
   db.run("INSERT INTO session_v2 VALUES ('s2', ?)", [JSON.stringify({ id: "s2", title: "New editor panel", directory: "/work/editor", time: { archived: T } })]);
   db.run("INSERT INTO session_message VALUES ('m1', 's1', 'assistant', 1, ?)", [msg("m1", "s1", "claude-sonnet-5-5", tok(1e6, 1e5, 0, 0), T)]); // 2.x copy of m1
   db.run("INSERT INTO session_message VALUES ('m2', 's2', 'assistant', 1, ?)", [JSON.stringify({ id: "m2", sessionID: "s2", role: "assistant", model: { id: "gpt-5.6", providerID: "openai" }, tokens: tok(0, 1e6, 1e6, 0, 1e6), time: { created: T + 60e3 } })]);
+  // A fork of s1 (/fork): a new session that starts with copies of s1's replies (new ids, same time and
+  // tokens), then one reply of its own. Only that one counts for the fork.
+  db.run("INSERT INTO session_v2 VALUES ('s4', ?)", [JSON.stringify({ id: "s4", title: "Fix the loot table (fork #1)", directory: "/work/game", time: { created: T + 250e3 } })]);
+  db.run("INSERT INTO session_message VALUES ('c1', 's4', 'assistant', 1, ?)", [msg("c1", "s4", "claude-sonnet-5-5", tok(1e6, 1e5, 0, 0), T)]);
+  db.run("INSERT INTO session_message VALUES ('m6', 's4', 'assistant', 2, ?)", [msg("m6", "s4", "claude-sonnet-5-5", tok(2e5, 1e4, 0, 0), T + 300e3)]);
   // A subagent (@code-reviewer) the first conversation started: a session of its own with s1 as parent.
   db.run("INSERT INTO session_v2 VALUES ('s3', ?)", [JSON.stringify({ id: "s3", title: "Review changes (@code-reviewer subagent)", parentID: "s1", directory: "/work/game" })]);
   db.run("INSERT INTO session_message VALUES ('m5', 's3', 'assistant', 1, ?)", [msg("m5", "s3", "claude-sonnet-5-5", tok(1e5, 1e4, 0, 0), T + 200e3)]);
@@ -44,7 +49,9 @@ const T = Date.UTC(2026, 9, 1, 10, 0);
   let checks = createChecks();
   const oconv = await readOpenCode(models, 0, { folder: oc, checks });
   const s1 = oconv.find((c) => c.id === "opencode:s1"), s2 = oconv.find((c) => c.id === "opencode:s2");
-  assert.strictEqual(oconv.length, 2, "two conversations");
+  assert.strictEqual(oconv.length, 3, "three conversations: the fork is one of its own");
+  const fork = oconv.find((c) => c.id === "opencode:s4");
+  assert.ok(Math.abs(fork.cost - (2e5 * 2 + 1e4 * 10) / 1e6) < 1e-9, "the fork counts only its own reply, not the copy of the original's");
   assert.strictEqual(s1.title, "Fix the loot table");
   assert.strictEqual(s1.project, "game");
   assert.ok(s2.archived && !s1.archived, "archived in OpenCode");
@@ -140,3 +147,19 @@ const T = Date.UTC(2026, 9, 1, 10, 0);
   fs.rmSync(tmp, { recursive: true });
   console.log("history tests passed");
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// Forks: the copy is dropped from the fork even when the fork is listed first and its copies carry
+// the original's times. The session OpenCode created first keeps the reply.
+{
+  const { dropForkCopies } = require("./history");
+  const tok = { input: 100, output: 10, read: 0, write: 0 };
+  const messages = new Map([
+    ["copy", { id: "copy", session: "fork", model: "m", time: 1000, tokens: tok }],
+    ["own", { id: "own", session: "fork", model: "m", time: 5000, tokens: tok }],
+    ["orig", { id: "orig", session: "main", model: "m", time: 1000, tokens: tok }],
+    ["same-session-twice", { id: "same-session-twice", session: "main", model: "m", time: 1000, tokens: tok }],
+  ]);
+  dropForkCopies(messages, new Map([["main", { created: 900 }], ["fork", { created: 4000 }]]));
+  assert.deepStrictEqual([...messages.keys()].sort(), ["orig", "own", "same-session-twice"], "the fork keeps only its own reply; the original keeps everything");
+  console.log("fork copy tests passed");
+}

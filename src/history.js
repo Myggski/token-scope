@@ -322,7 +322,7 @@ async function loadOpenCode(folder, since, checks = NO_CHECKS) {
       for (const row of tableRows(db, table) || []) {
         const data = asJson(row.data) || {};
         const id = row.id || data.id;
-        if (id && !sessions.has(id)) sessions.set(id, { title: row.title || data.title || null, cwd: row.directory || data.directory || (data.path && data.path.cwd) || null, archived: !!(row.time_archived || (data.time && data.time.archived)), parent: row.parent_id || row.parentID || data.parentID || data.parent_id || null });
+        if (id && !sessions.has(id)) sessions.set(id, { title: row.title || data.title || null, cwd: row.directory || data.directory || (data.path && data.path.cwd) || null, archived: !!(row.time_archived || (data.time && data.time.archived)), parent: row.parent_id || row.parentID || data.parentID || data.parent_id || null, created: row.time_created || (data.time && data.time.created) || null });
       }
     }
     db.close();
@@ -360,7 +360,7 @@ async function loadOpenCode(folder, since, checks = NO_CHECKS) {
   });
   walk(path.join(storage, "session"), 3, (file) => {
     const data = asJson(fs.readFileSync(file, "utf8"));
-    if (data && data.id && !sessions.has(data.id)) sessions.set(data.id, { title: data.title || null, cwd: data.directory || null, archived: !!(data.time && data.time.archived), parent: data.parentID || data.parent_id || null });
+    if (data && data.id && !sessions.has(data.id)) sessions.set(data.id, { title: data.title || null, cwd: data.directory || null, archived: !!(data.time && data.time.archived), parent: data.parentID || data.parent_id || null, created: (data.time && data.time.created) || null });
   });
   // Format checks: the message tables, and token counts on replies.
   if (databases.length && !knownTables && !jsonMessages) checks.mismatch("opencode", "Its database doesn't have the tables TokenScope reads, so OpenCode conversations are missing.");
@@ -379,7 +379,34 @@ async function loadAllOpenCode(folders, since, checks) {
     for (const [id, info] of part.sessions) if (!sessions.has(id)) sessions.set(id, info);
     marks.push(...part.marks);
   }
+  dropForkCopies(messages, sessions);
   return { messages, sessions, marks };
+}
+
+// A fork (/fork in OpenCode) starts a new session with a copy of the conversation so far. The copied
+// replies keep their time and token counts, so they'd be counted twice: in the original and in the
+// fork. A reply identical to one in another session (same time to the millisecond, model and token
+// counts) is a copy: it's kept only in the session it first appeared in, the one that started first.
+function dropForkCopies(messages, sessions = new Map()) {
+  // A fork's copies carry the original's times, so the session made first is the one OpenCode created
+  // first; without that, the one whose own replies start first (a fork has at least one of its own later).
+  const firstReply = new Map(), lastReply = new Map();
+  for (const m of messages.values()) {
+    firstReply.set(m.session, Math.min(firstReply.get(m.session) ?? Infinity, m.time));
+    lastReply.set(m.session, Math.max(lastReply.get(m.session) ?? 0, m.time));
+  }
+  const created = (id) => Number((sessions.get(id) || {}).created) || firstReply.get(id);
+  const order = (a, b) => created(a) - created(b) || firstReply.get(a) - firstReply.get(b) || lastReply.get(a) - lastReply.get(b);
+  const firstSeen = new Map(); // signature -> the message kept
+  const ordered = [...messages.values()].sort((a, b) => (a.session === b.session ? a.time - b.time : order(a.session, b.session)));
+  for (const m of ordered) {
+    const t = m.tokens;
+    if (!m.time || !(t.input + t.output + t.read + t.write)) continue;
+    const key = `${m.time}|${m.model}|${t.input}|${t.output}|${t.read}|${t.write}`;
+    const kept = firstSeen.get(key);
+    if (!kept) firstSeen.set(key, m);
+    else if (kept.session !== m.session) messages.delete(m.id);
+  }
 }
 
 // A subagent runs in a session of its own whose parent is the session that started it. Maps each
@@ -1117,4 +1144,4 @@ async function syncZedActuals(store, models, options) {
   return changed;
 }
 
-module.exports = { readZed, findZedActuals, syncZedActuals, CURSOR, startOffset, cursorParts, readClaudeCode, readCodex, readOpenCode, findOpenCodeActuals, syncOpenCodeActuals, openCodeFolder, openCodeFolders, openCodeFound, readCursor, readCursorRecords, cursorJobActuals, syncCursorActuals, replayCursor, summarize };
+module.exports = { dropForkCopies, readZed, findZedActuals, syncZedActuals, CURSOR, startOffset, cursorParts, readClaudeCode, readCodex, readOpenCode, findOpenCodeActuals, syncOpenCodeActuals, openCodeFolder, openCodeFolders, openCodeFound, readCursor, readCursorRecords, cursorJobActuals, syncCursorActuals, replayCursor, summarize };
