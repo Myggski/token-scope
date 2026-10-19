@@ -127,7 +127,10 @@ const claudeReplyIds = (lineSets) => {
   return ids;
 };
 
-async function readClaudeCode(models, since, { folder, checks = NO_CHECKS } = {}) {
+// savedOwners: reply id -> the conversation that counted it, from TokenScope's saved summaries
+// (archive.js). When Claude Code has deleted that conversation's log (after 30 days by default), a
+// fork or resumed copy still has the copied replies; this keeps them from being counted again.
+async function readClaudeCode(models, since, { folder, checks = NO_CHECKS, savedOwners = new Map() } = {}) {
   const logs = await listAllLogs(folder ? [folder] : logsFolders(), since);
   let assistants = 0, withUsage = 0;
   // First every session's reply ids and start (cached per file), so a copied reply counts only in
@@ -152,8 +155,9 @@ async function readClaudeCode(models, since, { folder, checks = NO_CHECKS } = {}
       const replies = lines.filter((l) => l.entry.type === "assistant").slice(-30);
       const counted = replies.filter((l) => l.entry.message && l.entry.message.usage && typeof l.entry.message.usage.output_tokens === "number").length;
       const firstT = lines.map((l) => Date.parse(l.entry.timestamp)).find(Number.isFinite);
+      const sessionId = (lines.find((l) => l.entry.sessionId) || { entry: {} }).entry.sessionId;
       // Kept: the reply ids and the summary, not the log itself (they can be large and the app runs for hours).
-      hit = { key, ids: claudeReplyIds([lines, ...helperLines]), first: firstT ?? Infinity, summary: summarizeClaude(log, lines, helperLines, models, new Set()), assistants: replies.length, withUsage: counted };
+      hit = { key, convId: `claude-code:${sessionId || path.basename(log.file, ".jsonl")}`, ids: claudeReplyIds([lines, ...helperLines]), first: firstT ?? Infinity, summary: summarizeClaude(log, lines, helperLines, models, new Set()), assistants: replies.length, withUsage: counted };
       claudeCache.set(log.file, hit);
     }
     assistants += hit.assistants;
@@ -163,9 +167,15 @@ async function readClaudeCode(models, since, { folder, checks = NO_CHECKS } = {}
   const owner = new Map(); // reply id -> the session that counts it
   // A copy carries the original's times, so a tie goes to the file created first (a resumed or forked one is made later).
   for (const x of [...sessions].sort((a, b) => a.hit.first - b.hit.first || a.log.born - b.log.born)) for (const id of x.hit.ids) if (!owner.has(id)) owner.set(id, x);
+  const live = new Set(sessions.map((x) => x.hit.convId));
+  // A reply a saved conversation counted, whose log is gone, is a copy in every live session.
+  const savedElsewhere = (id, x) => {
+    const saved = savedOwners.get(id);
+    return saved !== undefined && saved !== x.hit.convId && !live.has(saved);
+  };
   const out = [];
   for (const x of sessions) {
-    const copied = new Set([...x.hit.ids].filter((id) => owner.get(id) !== x));
+    const copied = new Set([...x.hit.ids].filter((id) => owner.get(id) !== x || savedElsewhere(id, x)));
     if (!copied.size) {
       if (x.hit.summary) out.push(x.hit.summary);
     } else {
@@ -216,6 +226,8 @@ function summarizeClaude(log, lines, helperLines, models, skip) {
     tool: "claude-code", title: title || "Untitled conversation", project: cwd ? path.basename(cwd) : null,
     start, end, approximate: false, jobIds: [...jobIds], ...priced,
     insights: analyze({ ...claudeTimeline(lines, models, skip), helperCost, total: priced.cost }),
+    // Kept in the saved summary, so a copy of these replies elsewhere isn't counted again once this log is gone.
+    replyIds: [...claudeReplyIds([lines, ...helperLines])].filter((id) => !skip.has(id)),
   } : null;
 }
 
@@ -497,7 +509,12 @@ const addMessage = (byModel, own, m) => {
   if (m.cost !== null) own.set(m.model, (own.get(m.model) || 0) + m.cost);
 };
 
-async function readOpenCode(models, since, { folder, checks = NO_CHECKS } = {}) {
+// A reply's fingerprint: what a fork's copy of it shares with it (see dropForkCopies).
+const openCodePrint = (m) => `oc|${m.time}|${m.model}|${m.tokens.input}|${m.tokens.output}|${m.tokens.read}|${m.tokens.write}`;
+
+// savedOwners: fingerprint -> the conversation that counted it, from TokenScope's saved summaries. If
+// you deleted that conversation in OpenCode, a fork still has copies of its replies; they don't count again.
+async function readOpenCode(models, since, { folder, checks = NO_CHECKS, savedOwners = new Map() } = {}) {
   const { messages, sessions, marks } = await loadAllOpenCode(folder ? [folder] : openCodeFolders(), since, checks);
   const jobsBySession = new Map();
   for (const mark of marks) {
@@ -513,6 +530,19 @@ async function readOpenCode(models, since, { folder, checks = NO_CHECKS } = {}) 
   }
   // Subagents' sessions are part of the conversation that started them (when that one is here).
   const rootOf = openCodeRoots(sessions);
+  if (savedOwners.size) {
+    const convOf = (session) => `opencode:${bySession.has(rootOf.get(session)) ? rootOf.get(session) : session}`;
+    const live = new Set([...bySession.keys()].map(convOf));
+    for (const [session, list] of bySession) {
+      const mine = convOf(session);
+      const kept = list.filter((m) => {
+        const owner = savedOwners.get(openCodePrint(m));
+        return !(owner && owner !== mine && !live.has(owner));
+      });
+      if (kept.length) bySession.set(session, kept);
+      else bySession.delete(session);
+    }
+  }
   const helpersOf = new Map();
   for (const id of bySession.keys()) {
     const root = rootOf.get(id);
@@ -565,6 +595,8 @@ async function readOpenCode(models, since, { folder, checks = NO_CHECKS } = {}) 
       id: `opencode:${id}`, tool: "opencode", title: info.title || "Untitled conversation",
       project: info.cwd || cwd ? path.basename(info.cwd || cwd) : null, start, end, approximate: false, ...(info.archived ? { archived: true } : {}), jobIds: [...jobIds], ...priced,
       ...(helpers.length ? { helpers: helperList, includes: helpers.map((h) => `opencode:${h}`) } : {}),
+      // Kept in the saved summary (see savedOwners above).
+      replyIds: [...list, ...helpers.flatMap((h) => bySession.get(h))].map(openCodePrint),
       insights: analyze({ requests, tools: [], cacheMinutes: 5, helperCost, total: priced.cost }),
     });
   }

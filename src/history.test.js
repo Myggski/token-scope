@@ -200,3 +200,49 @@ const T = Date.UTC(2026, 9, 1, 10, 0);
   fs.rmSync(dir, { recursive: true, force: true });
   console.log("claude code fork tests passed");
 })().catch((e) => { console.error(e); process.exit(1); });
+
+// The original's log is gone (Claude Code deletes logs after 30 days), but TokenScope's saved summary
+// of it remembers which replies it counted: a fork's copies of them still don't count again.
+(async () => {
+  const { readClaudeCode } = require("./history");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ts-cc-gone-"));
+  fs.mkdirSync(path.join(dir, "game"));
+  const at = (min) => new Date(Date.UTC(2026, 9, 19, 9, 0) + min * 60e3).toISOString();
+  const reply = (id, min, sid) => JSON.stringify({ type: "assistant", timestamp: at(min), sessionId: sid, message: { id, model: "claude-sonnet-5-5", usage: { input_tokens: 1e6, output_tokens: 1e5 } } });
+  fs.writeFileSync(path.join(dir, "game", "fork.jsonl"), [reply("msg_1", 1, "fork"), reply("msg_2", 3, "fork"), reply("msg_3", 90, "fork")].join("\n") + "\n");
+  const models = [{ id: "anthropic/claude-sonnet-5.5", inPerM: 2, outPerM: 10, cachedPerM: 0.2, cacheWritePerM: 2.5 }];
+  const alone = (await readClaudeCode(models, 0, { folder: dir }))[0];
+  assert.ok(Math.abs(alone.cost - 9) < 1e-9, "without the saved summary, all three replies are the fork's");
+  assert.deepStrictEqual(alone.replyIds.sort(), ["msg_1", "msg_2", "msg_3"], "the summary remembers which replies it counted");
+  const savedOwners = new Map([["msg_1", "claude-code:original"], ["msg_2", "claude-code:original"]]);
+  fs.utimesSync(path.join(dir, "game", "fork.jsonl"), new Date(), new Date()); // a new read, not the cached one
+  const fork = (await readClaudeCode(models, 0, { folder: dir, savedOwners }))[0];
+  assert.ok(Math.abs(fork.cost - 3) < 1e-9, "with it, the copies are left out: only the fork's own reply");
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log("claude code deleted-original tests passed");
+})().catch((e) => { console.error(e); process.exit(1); });
+
+// OpenCode: the original was deleted in OpenCode, its saved summary remembers its replies' fingerprints,
+// and the fork's copies of them don't count again.
+(async () => {
+  const { readOpenCode } = require("./history");
+  const SQL = await require("sql.js")({ locateFile: (f) => path.join(path.dirname(require.resolve("sql.js")), f) });
+  const oc = fs.mkdtempSync(path.join(os.tmpdir(), "ts-oc-gone-"));
+  const T0 = Date.UTC(2026, 9, 19, 9, 0);
+  const db = new SQL.Database();
+  db.run("CREATE TABLE session (id TEXT, title TEXT, directory TEXT)");
+  db.run("CREATE TABLE message (id TEXT, session_id TEXT, data TEXT)");
+  db.run("INSERT INTO session VALUES ('fork', 'Loot (fork #1)', '/work/game')");
+  const msg = (id, time, input) => JSON.stringify({ id, sessionID: "fork", role: "assistant", modelID: "claude-sonnet-5-5", tokens: { input, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, time: { created: time } });
+  db.run("INSERT INTO message VALUES ('c1', 'fork', ?)", [msg("c1", T0, 1e6)]); // copy of the deleted original's reply
+  db.run("INSERT INTO message VALUES ('n1', 'fork', ?)", [msg("n1", T0 + 3600e3, 5e5)]); // the fork's own
+  fs.writeFileSync(path.join(oc, "opencode.db"), Buffer.from(db.export()));
+  const models = [{ id: "anthropic/claude-sonnet-5.5", inPerM: 2, outPerM: 10, cachedPerM: 0.2, cacheWritePerM: 2.5 }];
+  const print = `oc|${T0}|claude-sonnet-5-5|1000000|0|0|0`;
+  const [plain] = await readOpenCode(models, 0, { folder: oc });
+  assert.ok(Math.abs(plain.cost - 3) < 1e-9 && plain.replyIds.includes(print), "without a saved summary both count, and the fingerprints are kept");
+  const [fork] = await readOpenCode(models, 0, { folder: oc, savedOwners: new Map([[print, "opencode:original"]]) });
+  assert.ok(Math.abs(fork.cost - 1) < 1e-9, "with it, only the fork's own reply counts");
+  fs.rmSync(oc, { recursive: true, force: true });
+  console.log("opencode deleted-original tests passed");
+})().catch((e) => { console.error(e); process.exit(1); });

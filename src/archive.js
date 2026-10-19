@@ -35,6 +35,19 @@ const cutoff = (keepDays, now) => (keepDays > 0 ? now - keepDays * DAY : -Infini
 // Saves what was just read and adds saved conversations whose records are gone. Returns the full
 // list for the tracked tools since `since`, each marked `saved: true` when it came from the archive.
 //   live: conversations the readers found now. tracked: tool ids switched on. keepDays: 0 = forever.
+// A live conversation that's only the end of a saved one: the tool trimmed its log, so the saved
+// summary is fuller. Not when the live one starts later because its copied replies are no longer
+// counted (a fork, see readClaudeCode and readOpenCode): when both list the replies they counted,
+// the saved one must have all of the live one's and more; an older saved summary without that list
+// is replaced.
+function trimmed(c, old) {
+  if (!old || !(c.start > old.start + 1000)) return false;
+  if (!c.replyIds) return true; // tools without reply lists: the old rule
+  if (!old.replyIds) return false;
+  const had = new Set(old.replyIds);
+  return old.replyIds.length > c.replyIds.length && c.replyIds.every((id) => had.has(id));
+}
+
 function withArchive(folder, live, { since, tracked, keepDays, now = Date.now() }) {
   const saved = readArchive(folder);
   let changed = false;
@@ -54,7 +67,7 @@ function withArchive(folder, live, { since, tracked, keepDays, now = Date.now() 
     const old = saved[c.id];
     // A reader that sees only the end of a conversation (its first records are gone) doesn't
     // replace the fuller summary.
-    if (old && c.start > old.start + 1000) continue;
+    if (trimmed(c, old)) continue;
     const summary = { ...c, savedAt: now };
     delete summary.saved;
     if (!old || JSON.stringify({ ...old, savedAt: 0 }) !== JSON.stringify({ ...summary, savedAt: 0 })) {
@@ -74,7 +87,7 @@ function withArchive(folder, live, { since, tracked, keepDays, now = Date.now() 
   const liveIds = new Set(live.map((c) => c.id));
   const kept = Object.values(saved).filter((c) => !liveIds.has(c.id) && tracked.has(c.tool) && c.end >= since).map((c) => ({ ...c, saved: true }));
   // A live conversation that's only the end of a saved one shows the saved, fuller summary.
-  const shown = live.map((c) => (saved[c.id] && c.start > saved[c.id].start + 1000 ? { ...saved[c.id], saved: true } : c));
+  const shown = live.map((c) => (trimmed(c, saved[c.id]) ? { ...saved[c.id], saved: true } : c));
   return [...shown, ...kept];
 }
 
@@ -97,4 +110,11 @@ function clearArchive(folder) {
   fs.rmSync(archiveFile(folder), { force: true });
 }
 
-module.exports = { withArchive, pruneArchive, clearArchive, readArchive, archiveFile };
+// Reply id -> conversation, from saved Claude Code summaries (see readClaudeCode's savedOwners).
+function savedReplyOwners(folder) {
+  const owners = new Map();
+  for (const c of Object.values(readArchive(folder))) for (const id of c.replyIds || []) owners.set(id, c.id);
+  return owners;
+}
+
+module.exports = { savedReplyOwners, withArchive, pruneArchive, clearArchive, readArchive, archiveFile };

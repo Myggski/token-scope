@@ -12,7 +12,7 @@ const { zedFound } = require("./src/zed");
 const { codexHome, codexFound, syncCodexActuals } = require("./src/codexlogs");
 const { installHook, removeHook, hookInstalled, hookComplete, cursorFound, lastRecord, lastProblem, problemsFile, pruneRecords } = require("./src/cursorhook");
 const { createChecks, checkOpenRouter } = require("./src/checks");
-const { withArchive, pruneArchive, clearArchive } = require("./src/archive");
+const { withArchive, pruneArchive, clearArchive, savedReplyOwners } = require("./src/archive");
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/models";
 const userFile = (name) => path.join(app.getPath("userData"), name);
@@ -210,9 +210,9 @@ async function historyList(days = keepDays()) {
       errors.push(`${SOURCES.find((s) => s.id === id).name}: ${error.message}`);
     }
   };
-  await attempt("claude-code", () => readClaudeCode(currentModels, since, { checks }));
+  await attempt("claude-code", () => readClaudeCode(currentModels, since, { checks, savedOwners: savedReplyOwners(app.getPath("userData")) }));
   await attempt("codex", () => readCodex(currentModels, since, { checks }));
-  await attempt("opencode", () => readOpenCode(currentModels, since, { checks }));
+  await attempt("opencode", () => readOpenCode(currentModels, since, { checks, savedOwners: savedReplyOwners(app.getPath("userData")) }));
   await attempt("zed", () => readZed(currentModels, since, { checks }));
   await attempt("cursor", async () => readCursor(currentModels, since, { folder: cursorRecords(), checks }));
   // Saves summaries and adds the ones whose records the tool has deleted since (see archive.js).
@@ -224,6 +224,8 @@ async function historyList(days = keepDays()) {
     errors.push(`Saved history: ${error.message}`);
   }
   list.sort((a, b) => b.end - a.end);
+  // Reply ids are only for the saved summaries; the window doesn't need them.
+  list = list.map(({ replyIds, ...c }) => c);
   return { conversations: list, keepDays: days, errors, warnings: checks.list() };
 }
 

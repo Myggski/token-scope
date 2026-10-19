@@ -11,7 +11,7 @@ const { syncActuals } = require("./claudelogs");
 const { syncCursorActuals, syncOpenCodeActuals, readClaudeCode, readCodex, readOpenCode, readCursor, readZed, syncZedActuals } = require("./history");
 const { syncCodexActuals } = require("./codexlogs");
 const { createChecks } = require("./checks");
-const { withArchive } = require("./archive");
+const { withArchive, savedReplyOwners } = require("./archive");
 const { startMcp } = require("./mcp");
 
 // stdout carries the MCP messages, so anything logged goes to stderr instead.
@@ -136,9 +136,9 @@ startMcp({
         console.error(error);
       }
     };
-    if (on["claude-code"]) await attempt(() => readClaudeCode(models, since, { checks }));
+    if (on["claude-code"]) await attempt(() => readClaudeCode(models, since, { checks, savedOwners: savedReplyOwners(folder) }));
     if (on.codex) await attempt(() => readCodex(models, since, { checks }));
-    if (on.opencode) await attempt(() => readOpenCode(models, since, { checks }));
+    if (on.opencode) await attempt(() => readOpenCode(models, since, { checks, savedOwners: savedReplyOwners(folder) }));
     if (on.zed) await attempt(() => readZed(models, since, { checks }));
     if (on.cursor) await attempt(async () => readCursor(models, since, { folder: path.join(folder, "history", "cursor"), checks }));
     // Also saves summaries, and adds the ones whose records the tool has deleted (see archive.js).

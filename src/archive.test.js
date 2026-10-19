@@ -56,6 +56,17 @@ const parent = { ...conv("main", "opencode", 3, 1), includes: ["opencode:sub"] }
 assert.deepStrictEqual(ids(withArchive(folder, [parent], { since: 0, tracked, keepDays: 0, now })).filter((x) => x.includes("sub")), [], "the old copy isn't shown");
 assert.ok(!readArchive(folder)["opencode:sub"], "and is removed");
 
+// A fork saved by an older version (copies counted, no reply list) is replaced by the corrected live
+// one, which starts later; a genuinely trimmed log still shows the fuller saved summary.
+withArchive(folder, [conv("fork", "claude-code", 10, 9)], { since: 0, tracked, keepDays: 0, now });
+const fixedFork = { ...conv("fork", "claude-code", 5, 3), replyIds: ["msg_3"] };
+const shownFork = withArchive(folder, [fixedFork], { since: 0, tracked, keepDays: 0, now }).find((c) => c.id === "claude-code:fork");
+assert.ok(!shownFork.saved && shownFork.cost === 3, "the corrected fork is shown and saved");
+assert.strictEqual(readArchive(folder)["claude-code:fork"].cost, 3);
+withArchive(folder, [{ ...conv("long", "claude-code", 10, 9), replyIds: ["a", "b", "c"] }], { since: 0, tracked, keepDays: 0, now });
+const cut = withArchive(folder, [{ ...conv("long", "claude-code", 5, 3), replyIds: ["c"] }], { since: 0, tracked, keepDays: 0, now }).find((c) => c.id === "claude-code:long");
+assert.ok(cut.saved && cut.cost === 9, "a trimmed log shows the fuller saved summary");
+
 clearArchive(folder);
 assert.deepStrictEqual(readArchive(folder), {});
 fs.rmSync(folder, { recursive: true });
