@@ -728,7 +728,9 @@ function modelWords(c) {
 }
 
 // Totals for a few periods, from the conversations shown (after the search).
-function historyTotals(list) {
+// While searching, each tile shows what the matching conversations cost, and in its small text
+// what everything cost, so the overall total is never out of sight.
+function historyTotals(list, all = list) {
   const now = Date.now();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -742,7 +744,12 @@ function historyTotals(list) {
   return periods.map((p) => {
     const inside = list.filter((c) => c.end >= p.since);
     const cost = inside.reduce((sum, c) => sum + c.cost, 0);
-    return `<div class="tile"><span class="tile-label">${escape(p.label)}</span><span class="tile-value">${costText(cost, inside.some((c) => c.approximate))}</span><span class="tile-hint">${inside.length} conversation${inside.length === 1 ? "" : "s"}</span></div>`;
+    let hint = `${inside.length} conversation${inside.length === 1 ? "" : "s"}`;
+    if (list !== all) {
+      const every = all.filter((c) => c.end >= p.since);
+      hint = `${inside.length} of ${every.length} · ${costText(every.reduce((sum, c) => sum + c.cost, 0), every.some((c) => c.approximate))} in all`;
+    }
+    return `<div class="tile"><span class="tile-label">${escape(p.label)}</span><span class="tile-value">${costText(cost, inside.some((c) => c.approximate))}</span><span class="tile-hint">${hint}</span></div>`;
   }).join("");
 }
 
@@ -979,7 +986,7 @@ function renderHistory() {
     }));
     list = window.ConversationSearch.searchConversations(items, query).map((h) => list[h.index]);
   }
-  $("historyTotals").innerHTML = historyTotals(list);
+  $("historyTotals").innerHTML = historyTotals(list, all);
   const visible = list.slice(0, state.historyShown);
   $("historyRows").innerHTML = visible.length ? visible.map(conversationRow).join("")
     : query ? emptyRow(2, `No conversations match "${query}".`, { attr: "data-clear-history-search", label: "Clear search" })
