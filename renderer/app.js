@@ -918,6 +918,16 @@ function otherModelsBlock(c) {
 }
 
 function conversationPanel(c) {
+  // A fork: what it copied is counted in the original, only its own replies here.
+  const of = c.fork && (c.fork.of ? `“${c.fork.of}”` : "the original conversation");
+  if (c.copyOnly) {
+    return `
+    <div class="job-panel single">
+      <div class="panel-block">
+        <p class="panel-note">Only replies made in this fork count here, and it has none yet. What it copied is counted in ${escape(of)}.</p>
+      </div>
+    </div>`;
+  }
   const jobs = c.jobIds.map((id) => state.jobs.find((j) => j.id === id)).filter(Boolean);
   const why = c.insights ? `
       <div class="panel-block">
@@ -978,7 +988,7 @@ function conversationPanel(c) {
             </tr>`).join("")}
           </tbody>
         </table>
-        <p class="panel-note">${c.approximate ? "Approximate, worked out from the size of each Cursor step. Usually within about 15%. Cursor's own usage page has the exact amount." : c.saved ? `Exact, from ${escape(TOOL_NAMES[c.tool] || c.tool)}'s token counts. ${escape(TOOL_NAMES[c.tool] || c.tool)} no longer has this conversation, so this is TokenScope's saved summary, priced when it was saved.` : "Exact, from the tool's own token counts."}${c.unpriced ? " Some models have no price on OpenRouter, so they're not in the total." : ""}${jobs.length ? ` Plans in this conversation: ${escape(jobs.map((j) => j.title).join(", "))}.` : ""}</p>
+        <p class="panel-note">${c.approximate ? "Approximate, worked out from the size of each Cursor step. Usually within about 15%. Cursor's own usage page has the exact amount." : c.saved ? `Exact, from ${escape(TOOL_NAMES[c.tool] || c.tool)}'s token counts. ${escape(TOOL_NAMES[c.tool] || c.tool)} no longer has this conversation, so this is TokenScope's saved summary, priced when it was saved.` : "Exact, from the tool's own token counts."}${c.fork ? ` Only replies made in this fork count here. What it copied is counted in ${escape(of)}.` : ""}${c.unpriced ? " Some models have no price on OpenRouter, so they're not in the total." : ""}${jobs.length ? ` Plans in this conversation: ${escape(jobs.map((j) => j.title).join(", "))}.` : ""}</p>
       </div>${subagents}
       ${otherModelsBlock(c)}
     </div>`;
@@ -995,8 +1005,10 @@ function costNotes(c) {
 // The smaller text under a conversation's name. Listed by when it was last active (a resumed
 // conversation can run for days), so that's the date shown.
 function conversationMeta(c) {
+  const fork = c.fork ? (c.fork.of ? `fork of “${c.fork.of}”` : "fork") : null;
+  if (c.copyOnly) return [c.project, fork, "nothing new yet"].filter(Boolean).join(" · ");
   const subagents = c.helpers && c.helpers.length ? `${c.helpers.length} subagent${c.helpers.length === 1 ? "" : "s"}` : null;
-  return [c.project, `last active ${formatWhen(c.end)}`, formatDuration(c.end - c.start), c.models.map(historyModelName).join(", "), subagents].filter(Boolean).join(" · ");
+  return [c.project, fork, `last active ${formatWhen(c.end)}`, formatDuration(c.end - c.start), c.models.map(historyModelName).join(", "), subagents].filter(Boolean).join(" · ");
 }
 
 // Text with the searched words marked, escaped.

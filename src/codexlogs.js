@@ -420,7 +420,7 @@ function checkFormat(rollouts, checks) {
 }
 
 // History: one entry per conversation. A subagent's log is added to the conversation that started it.
-async function readCodex(models, since, { home = codexHomes(), checks = { mismatch() {} }, summarize, analyze, zstd } = {}) {
+async function readCodex(models, since, { home = codexHomes(), checks = { mismatch() {} }, summarize, analyze, zstd, forkRow } = {}) {
   const { rollouts, byId } = await loadRollouts(home, zstd);
   const recent = rollouts.filter((r) => r.mtime >= since);
   checkFormat(recent, checks);
@@ -448,6 +448,16 @@ async function readCodex(models, since, { home = codexHomes(), checks = { mismat
       }
     }
     const priced = summarize(byModel, models);
+    // A fork with nothing of its own yet (all its requests are copies): listed at $0, like Codex lists it.
+    if (!priced.models.length && r.parentId && !r.subagent && r.start !== null && r.start >= since && r.events.some((e) => e.replayed)) {
+      const parent = byId.get(r.parentId);
+      out.push(forkRow({
+        id: `codex:${r.sessionId || path.basename(r.file).replace(/\.jsonl(\.zst)?$/, "")}`, tool: "codex",
+        title: names.get(r.sessionId) || r.title, of: parent ? names.get(parent.sessionId) || parent.title || "Untitled conversation" : null,
+        cwd: r.cwd, made: r.start, archived: r.archived,
+      }));
+      continue;
+    }
     if (!priced.models.length || r.start === null) continue;
     const end = Math.max(r.end || r.start, ...helpers.map((h) => h.end || 0));
     if (end < since) continue;
@@ -456,6 +466,8 @@ async function readCodex(models, since, { home = codexHomes(), checks = { mismat
       tool: "codex", title: names.get(r.sessionId) || r.title || "Untitled conversation",
       project: r.cwd ? path.basename(r.cwd) : null, start: r.start, end, approximate: false, ...(r.archived ? { archived: true } : {}),
       jobIds: [...r.jobMarks.keys()], ...priced,
+      // A fork: only its own requests count here; what it copied counts in the original.
+      ...(r.parentId && !r.subagent ? { fork: { of: byId.get(r.parentId) ? names.get(r.parentId) || byId.get(r.parentId).title || "Untitled conversation" : null } } : {}),
       insights: analyze({ ...timeline(r, models, defaultTier), cacheMinutes: 5, helperCost, total: priced.cost }),
     });
   }

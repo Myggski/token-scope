@@ -82,6 +82,12 @@ console.log("saved history tests passed");
   const shownNow = merge(f, [{ id: "opencode:fork", tool: "opencode", copyOnly: true }], { since: 0, tracked: new Set(["opencode"]), keepDays: 0, now: n });
   assert.deepStrictEqual(shownNow, [], "not shown, and no placeholder either");
   assert.ok(!read(f)["opencode:fork"], "the outdated saved summary is gone");
+  // An OpenCode fork is listed at $0 (it's in OpenCode's list too), and never saved.
+  const zero = { id: "opencode:fork", tool: "opencode", copyOnly: true, fork: { of: "Plan" }, title: "Plan (fork #1)", start: n - 60e3, end: n - 60e3, cost: 0, models: [], jobIds: [] };
+  merge(f, [{ id: "opencode:fork", tool: "opencode", title: "Plan (fork #1)", start: n - 3600e3, end: n - 1000, cost: 43.7, models: [], jobIds: [] }], { since: 0, tracked: new Set(["opencode"]), keepDays: 0, now: n });
+  const listedNow = merge(f, [zero], { since: 0, tracked: new Set(["opencode"]), keepDays: 0, now: n });
+  assert.deepStrictEqual(listedNow.map((c) => [c.id, c.cost]), [["opencode:fork", 0]], "listed at $0, not the outdated summary");
+  assert.ok(!read(f)["opencode:fork"], "not saved");
   clear(f);
   fs.rmSync(f, { recursive: true, force: true });
   console.log("copy-only fork tests passed");

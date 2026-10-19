@@ -11,7 +11,7 @@ const { syncActuals } = require("./claudelogs");
 const { syncCursorActuals, syncOpenCodeActuals, readClaudeCode, readCodex, readOpenCode, readCursor, readZed, syncZedActuals } = require("./history");
 const { syncCodexActuals } = require("./codexlogs");
 const { createChecks } = require("./checks");
-const { withArchive, savedReplyOwners } = require("./archive");
+const { withArchive, savedReplyOwners, listed } = require("./archive");
 const { startMcp } = require("./mcp");
 
 // stdout carries the MCP messages, so anything logged goes to stderr instead.
@@ -149,7 +149,7 @@ startMcp({
       return { conversations: withArchive(folder, conversations, { since, tracked, keepDays }), warnings: checks.list() };
     } catch (error) {
       console.error("Saved history:", error.message);
-      return { conversations: conversations.filter((c) => !c.copyOnly), warnings: checks.list() };
+      return { conversations: conversations.filter(listed), warnings: checks.list() };
     }
   },
   onClose: () => process.exit(0),

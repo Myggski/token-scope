@@ -12,7 +12,7 @@ const { zedFound } = require("./src/zed");
 const { codexHome, codexFound, syncCodexActuals } = require("./src/codexlogs");
 const { installHook, removeHook, hookInstalled, hookComplete, cursorFound, lastRecord, lastProblem, problemsFile, pruneRecords } = require("./src/cursorhook");
 const { createChecks, checkOpenRouter } = require("./src/checks");
-const { withArchive, pruneArchive, clearArchive, savedReplyOwners } = require("./src/archive");
+const { withArchive, pruneArchive, clearArchive, savedReplyOwners, listed } = require("./src/archive");
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/models";
 const userFile = (name) => path.join(app.getPath("userData"), name);
@@ -82,7 +82,7 @@ function startUpdates(window) {
   });
   autoUpdater.on("error", (error) => console.error("Update check failed:", error.message)); // offline, or GitHub unreachable: try again later
   const check = () => autoUpdater.checkForUpdates().catch(() => {});
-  setTimeout(check, 15e3);
+  setTimeout(check, 3e3); // a moment after startup, once the window has loaded its data
   setInterval(check, 6 * 3600e3);
 }
 
@@ -217,7 +217,7 @@ async function historyList(days = keepDays()) {
   await attempt("cursor", async () => readCursor(currentModels, since, { folder: cursorRecords(), checks }));
   // Saves summaries and adds the ones whose records the tool has deleted since (see archive.js).
   const tracked = new Set(Object.keys(on).filter((id) => on[id]));
-  let list = all.filter((c) => !c.copyOnly); // used if saved history can't be read
+  let list = all.filter(listed); // used if saved history can't be read
   try {
     list = withArchive(app.getPath("userData"), all, { since, tracked, keepDays: keepDays() });
   } catch (error) {

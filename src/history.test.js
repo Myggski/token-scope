@@ -207,7 +207,7 @@ const T = Date.UTC(2026, 9, 1, 10, 0);
   // Only a copy, nothing new yet: not shown.
   write("c.jsonl", [user(0), reply("msg_1", 1, 1e6, 1e5)], "c");
   const onlyCopy = (await readClaudeCode(models, 0, { folder: dir })).find((c) => c.id === "claude-code:c");
-  assert.ok(onlyCopy && onlyCopy.copyOnly && !onlyCopy.cost, "present but with nothing of its own (not shown; see archive.js)");
+  assert.ok(onlyCopy && onlyCopy.copyOnly && !onlyCopy.cost && !onlyCopy.fork, "present but with nothing of its own (not listed; see archive.js)");
   fs.rmSync(dir, { recursive: true, force: true });
   console.log("claude code fork tests passed");
 })().catch((e) => { console.error(e); process.exit(1); });
@@ -256,6 +256,43 @@ const T = Date.UTC(2026, 9, 1, 10, 0);
   assert.ok(Math.abs(fork.cost - 1) < 1e-9, "with it, only the fork's own reply counts");
   fs.rmSync(oc, { recursive: true, force: true });
   console.log("opencode deleted-original tests passed");
+})().catch((e) => { console.error(e); process.exit(1); });
+
+// OpenCode: a fork with nothing of its own yet is listed at $0, like OpenCode lists it.
+(async () => {
+  const { readOpenCode } = require("./history");
+  const SQL = await require("sql.js")({ locateFile: (f) => path.join(path.dirname(require.resolve("sql.js")), f) });
+  const oc = fs.mkdtempSync(path.join(os.tmpdir(), "ts-oc-zero-"));
+  const T0 = Date.UTC(2026, 9, 19, 9, 0);
+  const db = new SQL.Database();
+  db.run("CREATE TABLE session (id TEXT, title TEXT, directory TEXT, parent_id TEXT, time_created INTEGER, fork_session_id TEXT)");
+  db.run("CREATE TABLE message (id TEXT, session_id TEXT, data TEXT)");
+  db.run("INSERT INTO session VALUES ('main', 'Ladder plan', '/work/game', NULL, ?, NULL)", [T0 - 60e3]);
+  db.run("INSERT INTO session VALUES ('fork', 'Ladder plan (fork #1)', '/work/game', NULL, ?, 'main')", [T0 + 600e3]);
+  const msg = (id, session, time) => JSON.stringify({ id, sessionID: session, role: "assistant", modelID: "claude-sonnet-5-5", tokens: { input: 1e6, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, time: { created: time } });
+  db.run("INSERT INTO message VALUES ('m1', 'main', ?)", [msg("m1", "main", T0)]);
+  db.run("INSERT INTO message VALUES ('c1', 'fork', ?)", [msg("c1", "fork", T0)]); // the fork's copy of m1
+  // A fork from an older OpenCode (no fork link), with a reply of its own.
+  db.run("INSERT INTO session VALUES ('old', 'Ladder plan (fork #2)', '/work/game', NULL, ?, NULL)", [T0 + 900e3]);
+  db.run("INSERT INTO message VALUES ('c2', 'old', ?)", [msg("c2", "old", T0)]);
+  db.run("INSERT INTO message VALUES ('n2', 'old', ?)", [msg("n2", "old", T0 + 1000e3)]);
+  fs.writeFileSync(path.join(oc, "opencode.db"), Buffer.from(db.export()));
+  const models = [{ id: "anthropic/claude-sonnet-5.5", inPerM: 2, outPerM: 10, cachedPerM: 0.2, cacheWritePerM: 2.5 }];
+  const list = await readOpenCode(models, 0, { folder: oc });
+  const main = list.find((c) => c.id === "opencode:main"), fork = list.find((c) => c.id === "opencode:fork");
+  assert.ok(Math.abs(main.cost - 2) < 1e-9, "the original keeps its cost");
+  assert.strictEqual(fork.cost, 0, "the fork is listed at $0");
+  assert.strictEqual(fork.title, "Ladder plan (fork #1)");
+  assert.deepStrictEqual(fork.fork, { of: "Ladder plan" });
+  assert.strictEqual(fork.start, T0 + 600e3, "dated when it was forked");
+  assert.ok(fork.copyOnly, "and never saved (see archive.js)");
+  assert.ok(!main.fork, "the original isn't a fork");
+  const old = list.find((c) => c.id === "opencode:old");
+  assert.ok(Math.abs(old.cost - 2) < 1e-9 && !old.copyOnly, "a fork with work of its own counts only that");
+  assert.deepStrictEqual(old.fork, { of: null }, "and is marked as a fork, also without OpenCode's fork link");
+  assert.ok(!(await readOpenCode(models, T0 + 3600e3, { folder: oc })).some((c) => c.id === "opencode:fork" && c.title), "not listed when forked before the period shown");
+  fs.rmSync(oc, { recursive: true, force: true });
+  console.log("opencode $0 fork tests passed");
 })().catch((e) => { console.error(e); process.exit(1); });
 
 // Several forks: two forks of one original, a fork of a fork, and the original continued afterwards.

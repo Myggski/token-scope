@@ -48,12 +48,16 @@ function trimmed(c, old) {
   return old.replyIds.length > c.replyIds.length && c.replyIds.every((id) => had.has(id));
 }
 
+// Whether a conversation from a reader is listed: everything but the copies a tool made on its own.
+const listed = (c) => !c.copyOnly || !!c.fork;
+
 function withArchive(folder, liveAll, { since, tracked, keepDays, now = Date.now() }) {
   const saved = readArchive(folder);
   let changed = false;
-  // copyOnly: a fork that still exists but has nothing of its own. It isn't shown, and a saved summary
-  // of it (an older version counted its copies) is removed instead of shown in its place.
-  const live = liveAll.filter((c) => !c.copyOnly);
+  // copyOnly: a fork that still exists but has nothing of its own. It isn't saved, and a saved summary
+  // of it (an older version counted its copies) is removed instead of shown in its place. An OpenCode
+  // fork (c.fork) is listed at $0; a copy another tool made on its own isn't listed.
+  const live = liveAll.filter(listed);
   for (const c of liveAll) {
     if (c.copyOnly && saved[c.id]) {
       delete saved[c.id];
@@ -72,7 +76,7 @@ function withArchive(folder, liveAll, { since, tracked, keepDays, now = Date.now
     }
   }
   for (const c of live) {
-    if (!SAVED_TOOLS.has(c.tool)) continue;
+    if (!SAVED_TOOLS.has(c.tool) || c.copyOnly) continue;
     const old = saved[c.id];
     // A reader that sees only the end of a conversation (its first records are gone) doesn't
     // replace the fuller summary.
@@ -126,4 +130,4 @@ function savedReplyOwners(folder) {
   return owners;
 }
 
-module.exports = { savedReplyOwners, withArchive, pruneArchive, clearArchive, readArchive, archiveFile };
+module.exports = { listed, savedReplyOwners, withArchive, pruneArchive, clearArchive, readArchive, archiveFile };

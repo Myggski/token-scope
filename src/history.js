@@ -182,7 +182,9 @@ async function readClaudeCode(models, since, { folder, checks = NO_CHECKS, saved
       // Rare (a resumed or forked session): read again and leave the copies out. Not cached, as it depends on other sessions.
       const { lines, helperLines } = await x.read();
       const summary = summarizeClaude(x.log, lines, helperLines, models, copied);
-      // Only a copy, nothing of its own: present all the same (see archive.js copyOnly).
+      // Only a copy, nothing of its own: not listed (yet). Claude Code's logs don't say whether a copy
+      // is a fork you made or one an older version made on resume, so it isn't shown at $0 like
+      // OpenCode's and Codex's forks are. Present all the same (see archive.js copyOnly).
       out.push(summary || { id: x.hit.convId, tool: "claude-code", copyOnly: true });
     }
   }
@@ -190,6 +192,17 @@ async function readClaudeCode(models, since, { folder, checks = NO_CHECKS, saved
     checks.mismatch("claude-code", "Its logs no longer have token counts where expected, so Claude Code costs are missing or too low.");
   }
   return out;
+}
+
+// A fork with nothing of its own yet, listed at $0 so Spending has the same conversations as the
+// tool. Everything in it is a copy, counted in the original (of: its title, when known). copyOnly:
+// never saved, and an outdated saved summary of it is removed (see archive.js).
+function forkRow({ id, tool, title, of, cwd, made, archived }) {
+  return {
+    id, tool, copyOnly: true, title: title || "Untitled conversation", fork: { of: of || null },
+    project: cwd ? path.basename(cwd) : null, start: made, end: made, approximate: false, ...(archived ? { archived: true } : {}),
+    jobIds: [], models: [], cost: 0, insights: null,
+  };
 }
 
 // One Claude Code conversation. skip: reply ids counted in another session (a copy there).
@@ -237,7 +250,7 @@ function summarizeClaude(log, lines, helperLines, models, skip) {
 const codexLogs = require("./codexlogs");
 
 function readCodex(models, since, options = {}) {
-  return codexLogs.readCodex(models, since, { ...options, summarize, analyze });
+  return codexLogs.readCodex(models, since, { ...options, summarize, analyze, forkRow });
 }
 
 // ---------- OpenCode ----------
@@ -433,11 +446,16 @@ async function loadAllOpenCode(folders, since, checks) {
     for (const [id, info] of part.sessions) if (!sessions.has(id)) sessions.set(id, info);
     marks.push(...part.marks);
   }
-  const before = new Set([...messages.values()].map((m) => m.session));
+  const all = [...messages.values()];
+  const before = new Set(all.map((m) => m.session));
   dropForkCopies(messages, sessions);
   const after = new Set([...messages.values()].map((m) => m.session));
   const copyOnly = [...before].filter((id) => !after.has(id)); // forks with nothing of their own (yet)
-  return { messages, sessions, marks, copyOnly };
+  // Sessions that had copies left out: forks, also without OpenCode's fork link (older versions).
+  const counts = (list) => list.reduce((m, x) => m.set(x.session, (m.get(x.session) || 0) + 1), new Map());
+  const had = counts(all), kept = counts([...messages.values()]);
+  const forks = new Set([...had].filter(([id, n]) => (kept.get(id) || 0) < n).map(([id]) => id));
+  return { messages, sessions, marks, copyOnly, forks };
 }
 
 // A fork (/fork in OpenCode) starts a new session with a copy of the conversation so far. The copied
@@ -522,7 +540,7 @@ const openCodePrint = (m) => `oc|${m.time}|${m.model}|${m.tokens.input}|${m.toke
 // savedOwners: fingerprint -> the conversation that counted it, from TokenScope's saved summaries. If
 // you deleted that conversation in OpenCode, a fork still has copies of its replies; they don't count again.
 async function readOpenCode(models, since, { folder, checks = NO_CHECKS, savedOwners = new Map() } = {}) {
-  const { messages, sessions, marks, copyOnly } = await loadAllOpenCode(folder ? [folder] : openCodeFolders(), since, checks);
+  const { messages, sessions, marks, copyOnly, forks } = await loadAllOpenCode(folder ? [folder] : openCodeFolders(), since, checks);
   const jobsBySession = new Map();
   for (const mark of marks) {
     if (!jobsBySession.has(mark.session)) jobsBySession.set(mark.session, new Set());
@@ -546,8 +564,10 @@ async function readOpenCode(models, since, { folder, checks = NO_CHECKS, savedOw
         const owner = savedOwners.get(openCodePrint(m));
         return !(owner && owner !== mine && !live.has(owner));
       });
-      if (kept.length) bySession.set(session, kept);
-      else {
+      if (kept.length) {
+        if (kept.length < list.length) forks.add(session); // its original was deleted in OpenCode
+        bySession.set(session, kept);
+      } else {
         bySession.delete(session);
         copyOnly.push(session);
       }
@@ -604,15 +624,29 @@ async function readOpenCode(models, since, { folder, checks = NO_CHECKS, savedOw
     out.push({
       id: `opencode:${id}`, tool: "opencode", title: info.title || "Untitled conversation",
       project: info.cwd || cwd ? path.basename(info.cwd || cwd) : null, start, end, approximate: false, ...(info.archived ? { archived: true } : {}), jobIds: [...jobIds], ...priced,
+      // A fork: only its own replies count here; what it copied counts in the original.
+      ...(info.forkOf || forks.has(id) ? { fork: { of: info.forkOf && sessions.get(info.forkOf) ? sessions.get(info.forkOf).title || "Untitled conversation" : null } } : {}),
       ...(helpers.length ? { helpers: helperList, includes: helpers.map((h) => `opencode:${h}`) } : {}),
       // Kept in the saved summary (see savedOwners above).
       replyIds: [...list, ...helpers.flatMap((h) => bySession.get(h))].map(openCodePrint),
       insights: analyze({ requests, tools: [], cacheMinutes: 5, helperCost, total: priced.cost }),
     });
   }
-  // Forks that still exist but have nothing of their own: present, so an outdated saved summary of
-  // them (copies counted, from before 1.0.9) isn't shown in their place (see archive.js).
-  for (const id of new Set(copyOnly)) if (!rootOf.has(id) || !bySession.has(rootOf.get(id))) out.push({ id: `opencode:${id}`, tool: "opencode", copyOnly: true });
+  // Forks that still exist but have nothing of their own yet: everything in them is a copy, already
+  // counted in the original. They're listed at $0, so Spending has the same conversations as OpenCode.
+  // copyOnly also stops an outdated saved summary of them (copies counted, before 1.0.9) from being
+  // shown in their place (see archive.js). A subagent's session isn't listed on its own.
+  for (const id of new Set(copyOnly)) {
+    if (rootOf.has(id) && bySession.has(rootOf.get(id))) continue;
+    const info = sessions.get(id) || {};
+    const made = Number(info.created) || 0;
+    if (info.parent || made < since || !made) {
+      out.push({ id: `opencode:${id}`, tool: "opencode", copyOnly: true });
+      continue;
+    }
+    const original = info.forkOf && sessions.get(info.forkOf);
+    out.push(forkRow({ id: `opencode:${id}`, tool: "opencode", title: info.title, of: original ? original.title || "Untitled conversation" : null, cwd: info.cwd, made, archived: info.archived }));
+  }
   return out;
 }
 

@@ -133,6 +133,9 @@ fs.mkdirSync(path.join(home, "archived_sessions"), { recursive: true });
   assert.deepStrictEqual(Object.keys(byId).sort(), ["codex:fork-1", "codex:orphan-1", "codex:packed-1", "codex:parent-1"], "the subagent is part of its parent");
   const money = (v) => Number(v.toFixed(4));
 
+  assert.deepStrictEqual(byId["codex:fork-1"].fork, { of: "Speed up the loot table" }, "a fork says what it was forked from");
+  assert.deepStrictEqual(byId["codex:orphan-1"].fork, { of: null }, "also when the original is gone");
+  assert.ok(!byId["codex:parent-1"].fork && !byId["codex:packed-1"].fork);
   const p = byId["codex:parent-1"];
   assert.strictEqual(p.title, "Speed up the loot table", "first line of the first message");
   assert.strictEqual(p.project, "game");
@@ -204,6 +207,20 @@ fs.mkdirSync(path.join(home, "archived_sessions"), { recursive: true });
   // A broken .zst file doesn't stop the others from being read.
   fs.writeFileSync(path.join(day, "rollout-broken.jsonl.zst"), "not zstd");
   assert.strictEqual((await readCodex(models, 0, { home, zstd: { forceJs: true } })).length, 4);
+
+  // A fork with nothing of its own yet: listed at $0, like Codex lists it.
+  const empty = log();
+  empty.add(60, "session_meta", { id: "empty-1", forked_from_id: "parent-1", timestamp: at(60), cwd: "/work/game" });
+  empty.add(60, "turn_context", { model: "gpt-5.5" });
+  empty.tokens(60, 10000, 0, 1000, 400); // copies of the parent's
+  empty.tokens(60, 20000, 15000, 2000);
+  fs.writeFileSync(path.join(day, "rollout-2026-10-10T10-00-00-empty-1.jsonl"), empty.text());
+  const withEmpty = await readCodex(models, 0, { home, zstd: { forceJs: true } });
+  const zero = withEmpty.find((c) => c.id === "codex:empty-1");
+  assert.ok(zero && zero.cost === 0 && zero.copyOnly, "listed at $0, never saved");
+  assert.deepStrictEqual(zero.fork, { of: "Speed up the loot table" });
+  assert.strictEqual(zero.start, Date.parse(at(60)), "dated when it was forked");
+  assert.ok(Math.abs(withEmpty.find((c) => c.id === "codex:parent-1").cost - p.cost) < 1e-9, "the original keeps its cost");
 
   fs.rmSync(tmp, { recursive: true });
   console.log("codex log tests passed");
