@@ -13,6 +13,7 @@ const FAVORITES = "★ Favorites"; // a chip like the providers, matching the us
 const MAX_PROVIDER_CHIPS = 8; // plus All, Favorites and Others, this fits one line in the default window
 const VIEWS = ["models", "jobs", "history", "help"];
 const PAGE = 20; // models shown at first, and added by each "Show more"
+const PAGE_SMALL = 5; // rows shown at first in a Details list (subagents)
 
 // Everything the user picks is saved in the data file (via the main process) and restored on the next launch.
 const state = {
@@ -38,6 +39,7 @@ const state = {
   historyShown: PAGE,
   historyLayout: { tools: false, makers: false }, // which Spending filter rows the last load had (space kept while loading)
   openConversations: new Set(),
+  subagentsShown: new Map(), // conversation id -> how many subagent rows its Details show
   warnings: { prices: [], history: [] }, // data format warnings, shown at the top
 };
 
@@ -813,15 +815,32 @@ function conversationPanel(c) {
         ${driversBar(c)}
         <p class="panel-note">${escape(factsLine(c))}.</p>
       </div>` : "";
-  // Subagents this conversation started (OpenCode runs each in a session of its own). Their cost is included above.
-  const subagents = c.helpers && c.helpers.length ? `
+  // Subagents this conversation started (OpenCode runs each in a session of its own). Their cost is
+  // included above. Most expensive first, the same name ran again shown once with a count, and 5 at
+  // a time, so a conversation with dozens of them stays readable.
+  let subagents = "";
+  if (c.helpers && c.helpers.length) {
+    const groups = new Map();
+    for (const h of c.helpers) {
+      const g = groups.get(h.title) || { title: h.title, cost: 0, runs: 0 };
+      g.cost += h.cost;
+      g.runs += 1;
+      groups.set(h.title, g);
+    }
+    const rows = [...groups.values()].sort((a, b) => b.cost - a.cost);
+    const shown = Math.min(rows.length, state.subagentsShown.get(c.id) || PAGE_SMALL);
+    const total = c.helpers.reduce((sum, h) => sum + h.cost, 0);
+    const more = Math.min(PAGE_SMALL, rows.length - shown);
+    subagents = `
       <div class="panel-block">
         <h4>Subagents it started</h4>
-        <ul class="model-rows">${c.helpers.map((h) => `
-          <li><span class="model-label">${escape(h.title)}</span><span class="num">${costText(h.cost, c.approximate)}</span></li>`).join("")}
+        <p class="panel-note">${c.helpers.length} subagent${c.helpers.length === 1 ? "" : "s"} · ${costText(total, c.approximate)} in all, included in this conversation's cost.</p>
+        <ul class="model-rows">${rows.slice(0, shown).map((g) => `
+          <li><span class="model-label">${escape(g.title)}${g.runs > 1 ? ` <span class="muted">×${g.runs}</span>` : ""}</span><span class="num">${costText(g.cost, c.approximate)}</span></li>`).join("")}
         </ul>
-        <p class="panel-note">Included in this conversation's cost.</p>
-      </div>` : "";
+        ${more > 0 ? `<button class="button ghost" type="button" data-more-subagents="${escape(c.id)}">Show ${more} more</button>` : ""}
+      </div>`;
+  }
   return `
     <div class="job-panel single">${why}${subagents}
       <div class="panel-block">
@@ -1191,6 +1210,12 @@ $("historyRows").addEventListener("submit", (event) => {
 $("historyRows").addEventListener("click", (event) => {
   const drop = event.target.closest("[data-compare-remove]");
   if (drop) return setCompareModels((state.compareModels || [...state.favorites]).filter((id) => id !== drop.dataset.compareRemove));
+  const moreSubagents = event.target.closest("[data-more-subagents]");
+  if (moreSubagents) {
+    const id = moreSubagents.dataset.moreSubagents;
+    state.subagentsShown.set(id, (state.subagentsShown.get(id) || PAGE_SMALL) + PAGE_SMALL);
+    return renderHistory();
+  }
   const t = event.target.closest("[data-toggle-conv]");
   if (!t) return;
   const id = t.dataset.toggleConv;
