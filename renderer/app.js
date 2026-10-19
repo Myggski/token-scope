@@ -201,11 +201,16 @@ function renderModels({ animate } = {}) {
 // The model a job is planned to run on: the one it ran on, else the first one compared.
 const plannedModel = (job) => (job.actual && job.actual.modelId) || Object.keys(job.estimates || {})[0] || null;
 
+// Estimates are saved as estimated, before the correction from past real costs (so later
+// corrections are learned from them); the correction used when the plan was made is saved with it.
+const fixOf = (job) => (job.correction > 0 ? job.correction : 1);
+
 function estimateCell(job) {
   const id = plannedModel(job);
   const e = id && (job.estimates || {})[id];
   if (!e) return `<td class="num">–</td>`;
-  return `<td class="num">${money(e.likely)}<span class="sub-value">${money(e.low)} – ${money(e.high)}</span></td>`;
+  const k = fixOf(job);
+  return `<td class="num">${money(e.likely * k)}<span class="sub-value">${money(e.low * k)} – ${money(e.high * k)}</span></td>`;
 }
 
 function actualCell(job) {
@@ -219,7 +224,7 @@ function actualCell(job) {
   const estimate = job.estimates && job.estimates[a.modelId];
   const parts = [];
   if (a.status === "running") parts.push("so far");
-  else if (estimate && estimate.likely > 0) parts.push(`${(a.costUsd / estimate.likely).toFixed(1)}× estimate`);
+  else if (estimate && estimate.likely > 0) parts.push(`${(a.costUsd / (estimate.likely * fixOf(job))).toFixed(1)}× estimate`);
   if (a.source === "ai") parts.push("reported by AI");
   else if (a.approximate) parts.push("approximate");
   if (a.unpricedModels) parts.push("some models unpriced");
@@ -262,7 +267,7 @@ function jobPanel(job) {
             ${job.plan.phases ? `<td>${escape(p.name || `Phase ${i + 1}`)}</td>` : ""}
             <td>${p.steps} + ${Math.round((p.rework ?? 0.2) * 100)}% fixes</td>
             <td>${missPct(p.cacheHit)}</td>
-            <td class="num">${money(phaseCosts ? phaseCosts[i] : estimates[planned] && estimates[planned].likely)}</td>
+            <td class="num">${money((phaseCosts ? phaseCosts[i] : estimates[planned] && estimates[planned].likely) * fixOf(job))}</td>
           </tr>`).join("")}
         </tbody>
       </table>
@@ -273,7 +278,7 @@ function jobPanel(job) {
   // in cost order. A situation within a few points of the expected one is left out, so no two boxes say the same.
   const prices = state.models.find((m) => m.id === planned);
   const whatIf = job.plan && prices ? cacheWhatIf(prices, job.plan) : null;
-  const expected = estimates[planned] && estimates[planned].likely;
+  const expected = estimates[planned] && estimates[planned].likely * fixOf(job);
   const expectedMiss = expectedMissRate(job);
   const SITUATIONS = [
     { name: "Smooth", hint: "one unbroken working session" },
@@ -282,7 +287,7 @@ function jobPanel(job) {
   ];
   let tiles = [];
   if (whatIf) {
-    tiles = whatIf.map((w, i) => ({ ...SITUATIONS[i], miss: Math.round((1 - w.cacheHit) * 100), value: w.likely }))
+    tiles = whatIf.map((w, i) => ({ ...SITUATIONS[i], miss: Math.round((1 - w.cacheHit) * 100), value: w.likely * fixOf(job) }))
       .filter((t) => expectedMiss === null || Math.abs(t.miss - expectedMiss) > 3);
     tiles.push({ name: "Expected", hint: "what the AI expects for this task", miss: expectedMiss, value: expected, current: true });
     tiles.sort((a, b) => a.value - b.value);
@@ -310,7 +315,7 @@ function jobPanel(job) {
       <ul class="model-rows">${ids.map((id) => `
         <li>
           <span class="model-label">${escape(modelName(id))}${id === planned ? ` <span class="badge">${ran ? "Ran on this" : "Planned"}</span>` : ""}</span>
-          <span class="num">${money(estimates[id].likely)}</span>
+          <span class="num">${money(estimates[id].likely * fixOf(job))}</span>
           <span class="row-buttons">
             ${id !== planned && !ran ? `<button class="soft-button" type="button" data-plan-model="${escape(id)}" data-job="${escape(job.id)}">Plan on this</button>` : ""}
             ${ids.length > 1 && id !== ran ? `<button class="quiet-danger" type="button" data-remove-model="${escape(id)}" data-job="${escape(job.id)}" aria-label="Remove ${escape(modelName(id))}">Remove</button>` : ""}
@@ -387,12 +392,16 @@ function renderJobs() {
 
   const measured = state.jobs.filter((j) => j.actual);
   const total = measured.reduce((sum, j) => sum + j.actual.costUsd, 0);
-  const fix = correction(state.jobs);
   const parts = [];
   if (jobs.length) parts.push(`${jobs.length} plan${jobs.length === 1 ? "" : "s"}${measured.length ? `, ${measured.some((j) => j.actual.approximate) ? "≈ " : ""}${money(total)} in real costs so far` : ""}.`);
-  parts.push(fix.applied
-    ? `Real costs have been ${fix.factor.toFixed(2)}× the estimates on average, so new estimates are corrected to match.`
-    : `Estimates start adjusting to your real costs after ${2 - fix.jobs} more finished plan${fix.jobs === 1 ? "" : "s"} with an exact cost.${fix.approximate ? " Approximate costs, like Cursor's, don't count." : ""}`);
+  // Each tool's estimates are corrected from its own finished plans; others share one from exact costs.
+  const { toolOf } = window.Estimate;
+  const own = [...new Set(state.jobs.map(toolOf).filter(Boolean))].map((t) => ({ t, fix: correction(state.jobs, t) })).filter((x) => x.fix.tool);
+  const shared = correction(state.jobs);
+  const times = (f) => `${f.factor < 1 ? f.factor.toFixed(2) : f.factor.toFixed(1)}×`;
+  if (own.length) parts.push(`New estimates are corrected to your real costs: ${own.map((x) => `${TOOL_NAMES[x.t] || x.t} ${times(x.fix)}`).join(", ")}${shared.applied && own.length < 4 ? `, other tools ${times(shared)}` : ""}.`);
+  else if (shared.applied) parts.push(`Real costs have been ${times(shared)} the estimates on average, so new estimates are corrected to match.`);
+  else parts.push("Estimates start adjusting to your real costs after 2 finished plans from the same tool.");
   $("jobsSummary").textContent = parts.join(" ");
   renderConnect(); // shows which tools are connected
 }

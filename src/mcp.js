@@ -2,7 +2,7 @@
 // Talks JSON-RPC over stdin/stdout, one message per line. Everything stays on this computer.
 const readline = require("readline");
 const { sortRows } = require("./models");
-const { estimateJob, cacheWhatIf, describePhase, applyCorrection, correction, validPlan, DEFAULT_CACHE_HIT } = require("./estimate");
+const { estimateJob, cacheWhatIf, describePhase, applyCorrection, correction, validPlan, toolOfClient, DEFAULT_CACHE_HIT } = require("./estimate");
 const { saveEstimate, recordActual, finishJob, continueJob, deleteJob, similarJobs, describeJob } = require("./jobs");
 
 const round = (value, digits = 4) => (value === null || value === undefined ? null : Number(value.toFixed(digits)));
@@ -208,9 +208,10 @@ function createHandlers({ store, getModels, sync = async () => {}, client = () =
       const picked = pickModels(await getModels(), args.model_ids, favoritesOf());
       await sync(); // so the correction includes the latest real costs
       const before = store.read().jobs;
-      const fix = correction(before);
+      const tool = toolOfClient(client());
+      const fix = correction(before, tool); // learned from this tool's own plans when it has 2 or more
       const duplicates = similarJobs(before, args.title);
-      const job = args.save === false ? null : saveEstimate(store, { title: args.title, plan, models: picked, source: "ai", client: client(), note: args.note });
+      const job = args.save === false ? null : saveEstimate(store, { title: args.title, plan, models: picked, source: "ai", client: client(), note: args.note, correction: fix });
       // In the order given: the first model is the planned one.
       const estimates = picked.map((m, i) => {
         const raw = estimateJob(m, plan);
@@ -244,8 +245,10 @@ function createHandlers({ store, getModels, sync = async () => {}, client = () =
           show_to_user: "Show these assumptions with the estimate, so whoever reads it can see what it rests on.",
         },
         correction: fix.applied
-          ? `Adjusted by ${round(fix.factor, 2)}x, from ${fix.jobs} past jobs with recorded actual costs.`
-          : `Not adjusted yet: needs at least 2 past jobs with an exact recorded actual cost (has ${fix.jobs}).${fix.approximate ? ` ${fix.approximate} job${fix.approximate === 1 ? " has" : "s have"} only an approximate cost (Cursor), which doesn't count.` : ""}`,
+          ? fix.tool
+            ? `Adjusted by ${round(fix.factor, 2)}x, from ${fix.jobs} finished jobs that ran in this same tool (each tool is corrected from its own jobs, as tools differ a lot in how many requests the same work takes).`
+            : `Adjusted by ${round(fix.factor, 2)}x, from ${fix.jobs} past jobs with exact real costs (this tool doesn't have 2 finished jobs of its own yet).`
+          : `Not adjusted yet: needs 2 finished jobs from this tool, or 2 with an exact real cost from any tool (has ${fix.jobs}).`,
         estimates,
         next: job ? `Show the user the likely cost and range per model. If the work continues in another session, call continue_job with job_id "${job.id}" there first. When all of it is done, call finish_job with that job_id. In Claude Code, Codex and OpenCode, and in Cursor with tracking on, the real cost is measured automatically. Elsewhere, use record_actual.` : null,
       };
@@ -258,7 +261,7 @@ function createHandlers({ store, getModels, sync = async () => {}, client = () =
         inputTokens: args.input_tokens, cachedTokens: args.cached_tokens, outputTokens: args.output_tokens,
         source: "ai", note: args.note,
       });
-      const fix = correction(store.read().jobs);
+      const fix = correction(store.read().jobs, toolOfClient(client()));
       return { job: describeJob(job), correction_now: fix.applied ? round(fix.factor, 2) : null, jobs_with_actuals: fix.jobs };
     },
 
@@ -290,7 +293,7 @@ function createHandlers({ store, getModels, sync = async () => {}, client = () =
     async list_jobs(args) {
       await sync();
       const { jobs } = store.read();
-      const fix = correction(jobs);
+      const fix = correction(jobs, toolOfClient(client()));
       return {
         correction_factor: fix.applied ? round(fix.factor, 2) : null,
         jobs_with_actuals: fix.jobs,

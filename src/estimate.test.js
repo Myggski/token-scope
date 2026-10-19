@@ -26,7 +26,7 @@ assert.deepStrictEqual(correction([]), { factor: 1, jobs: 0, approximate: 0, app
 const job = (likely, actual) => ({ estimates: { x: { likely } }, actual: { modelId: "x", costUsd: actual } });
 near(correction([job(1, 2), job(1, 0.5)]).factor, 1, "2x over and 2x under cancel out");
 near(correction([job(1, 2), job(2, 4)]).factor, 2, "consistent 2x");
-assert.strictEqual(correction([job(1, 100), job(1, 100)]).factor, 5, "capped at 5x");
+assert.strictEqual(correction([job(1, 100), job(1, 100)]).factor, 10, "capped at 10x");
 console.log("estimate tests passed");
 assert.strictEqual(correction([job(1, 2), job(1, 2), { ...job(1, 0.01), actual: { modelId: "x", costUsd: 0.01, status: "running" } }]).factor, 2, "running jobs don't count");
 console.log("running-job check passed");
@@ -37,6 +37,21 @@ assert.strictEqual(mixed.factor, 2);
 assert.strictEqual(mixed.approximate, 1, "and counted as left out");
 assert.strictEqual(correction([approx(1, 2), approx(1, 2)]).applied, false, "approximate costs alone never adjust estimates");
 console.log("approximate-cost check passed");
+
+// Per tool: a tool's own finished plans decide its correction, approximate ones included.
+const ran = (tool, likely, actual, extra = {}) => ({ estimates: { x: { likely } }, actual: { modelId: "x", costUsd: actual, source: tool, ...extra } });
+const history = [ran("claude-code", 1, 2), ran("claude-code", 1, 2), ran("cursor-hook", 5.78, 0.73, { approximate: true }), ran("cursor-hook", 8.55, 0.70, { approximate: true })];
+const cur = correction(history, "cursor");
+near(cur.factor, Math.sqrt((0.73 / 5.78) * (0.70 / 8.55)), "Cursor learns from its own plans (about 0.1x)");
+assert.strictEqual(cur.tool, "cursor");
+near(correction(history, "claude-code").factor, 2, "Claude Code keeps its own");
+near(correction(history, "codex").factor, 2, "a tool without 2 plans of its own gets the shared one from exact costs");
+near(correction(history).factor, 2, "and so does an estimate from an unknown tool");
+const { toolOf, toolOfClient } = require("./estimate");
+assert.strictEqual(toolOfClient("cursor-vscode"), "cursor");
+assert.strictEqual(toolOfClient("claude-ai"), null, "Claude Desktop isn't Claude Code");
+assert.strictEqual(toolOf({ client: "codex-mcp-client" }), "codex", "a plan not measured yet: the tool that asked");
+console.log("per-tool correction check passed");
 
 // Cache pricing: the 3-step plan above has 16k new tokens and 23k re-sent.
 const { agentCost, estimateJob, cacheWhatIf, describePhase, DEFAULT_CACHE_HIT } = require("./estimate");

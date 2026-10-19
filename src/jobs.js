@@ -20,7 +20,7 @@ function cleanPhase(p) {
 
 // Saves raw estimates (before correction) so later corrections are computed from what was estimated.
 // The first model is the one planned for the job.
-function saveEstimate(store, { title, plan, models, source, client, note }) {
+function saveEstimate(store, { title, plan, models, source, client, note, correction: fix = null }) {
   if (!validPlan(plan)) throw new Error("The plan needs steps (1 or more) and token sizes of 0 or more, for every phase.");
   const estimates = {};
   for (const m of models) estimates[m.id] = storedEstimate(m, plan);
@@ -32,6 +32,8 @@ function saveEstimate(store, { title, plan, models, source, client, note }) {
     ...(client ? { client: String(client).slice(0, 100) } : {}),
     plan: Array.isArray(plan.phases) ? { phases: plan.phases.map(cleanPhase) } : cleanPhase(plan),
     estimates,
+    // The correction shown with these estimates (see estimate.js); the estimates themselves stay raw.
+    ...(fix && fix.applied && fix.factor !== 1 ? { correction: Number(fix.factor.toFixed(4)) } : {}),
     ...(note ? { note: String(note).slice(0, 2000) } : {}),
   };
   store.update((data) => data.jobs.push(job));
@@ -133,7 +135,10 @@ const plannedModel = (job) => (job.actual && job.actual.modelId) || Object.keys(
 // One line per job for history views: what was estimated for the model used, and what it cost.
 function describeJob(job) {
   const used = job.actual && job.actual.modelId;
-  const estimate = used && job.estimates ? job.estimates[used] : null;
+  const raw = used && job.estimates ? job.estimates[used] : null;
+  // As shown when the plan was made: with the correction from past real costs, if one was used.
+  const k = job.correction > 0 ? job.correction : 1;
+  const estimate = raw ? { ...raw, low: round(raw.low * k, 4), likely: round(raw.likely * k, 4), high: round(raw.high * k, 4) } : null;
   return {
     id: job.id,
     title: job.title,
@@ -144,6 +149,7 @@ function describeJob(job) {
     modelsEstimated: Object.keys(job.estimates || {}),
     plannedModel: plannedModel(job),
     estimateForModelUsed: estimate,
+    ...(k !== 1 ? { correctionUsed: k } : {}),
     ended: job.endedAt || null,
     actual: job.actual || null,
     actualVsLikely: estimate && job.actual && estimate.likely > 0 ? round(job.actual.costUsd / estimate.likely, 2) : null,

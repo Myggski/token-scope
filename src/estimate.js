@@ -74,24 +74,42 @@
     return result;
   }
 
-  // Learns how far off estimates have been: actual cost / likely estimate for the model used,
-  // over past jobs that have both. Geometric mean, so 2x over and 2x under cancel out.
+  // Which AI tool a job ran in: the tool its real cost was measured from, else the tool that
+  // asked for the estimate (the MCP client's name, e.g. "cursor-vscode", "claude-code").
+  const SOURCES = { "claude-code": "claude-code", codex: "codex", opencode: "opencode", "cursor-hook": "cursor" };
+  const CLIENTS = [[/cursor/i, "cursor"], [/claude[-_ ]?code/i, "claude-code"], [/codex/i, "codex"], [/opencode/i, "opencode"]];
+  function toolOf(job) {
+    const source = job && job.actual && SOURCES[job.actual.source];
+    if (source) return source;
+    return toolOfClient(job && job.client);
+  }
+  function toolOfClient(client) {
+    const hit = client && CLIENTS.find(([pattern]) => pattern.test(client));
+    return hit ? hit[1] : null;
+  }
+
   // How far real costs have been from the estimates (geometric mean of real / likely), from finished
-  // jobs with an exact real cost. Approximate ones (Cursor) don't count: they can be far off, and a
-  // wrong correction would make every later estimate wrong. `approximate` says how many were left out.
-  function correction(jobs) {
-    const ratios = [];
-    let approximate = 0;
+  // jobs. Each AI tool works differently (Cursor runs many tool calls per request, Claude Code one),
+  // so with a tool given, its own jobs decide, approximate costs included: they're close enough
+  // (about 15%) and the gap between tools is far bigger. A tool with fewer than 2 finished jobs
+  // gets the correction from all exact costs instead. `approximate`: jobs left out of that one.
+  const geoMean = (ratios) => Math.exp(ratios.reduce((sum, r) => sum + Math.log(r), 0) / ratios.length);
+  const clamp = (f) => Math.min(10, Math.max(0.05, f));
+  function correction(jobs, tool = null) {
+    const finished = [];
     for (const job of jobs || []) {
       const a = job.actual, e = a && job.estimates && job.estimates[a.modelId];
       // A job still running hasn't reached its full cost yet.
-      if (!(a && e && a.status !== "running" && e.likely > 0 && a.costUsd > 0)) continue;
-      if (a.approximate) approximate++;
-      else ratios.push(a.costUsd / e.likely);
+      if (a && e && a.status !== "running" && e.likely > 0 && a.costUsd > 0) finished.push({ job, ratio: a.costUsd / e.likely });
     }
-    if (ratios.length < 2) return { factor: 1, jobs: ratios.length, approximate, applied: false };
-    const factor = Math.exp(ratios.reduce((sum, r) => sum + Math.log(r), 0) / ratios.length);
-    return { factor: Math.min(5, Math.max(0.2, factor)), jobs: ratios.length, approximate, applied: true };
+    if (tool) {
+      const own = finished.filter((f) => toolOf(f.job) === tool).map((f) => f.ratio);
+      if (own.length >= 2) return { factor: clamp(geoMean(own)), jobs: own.length, approximate: 0, applied: true, tool };
+    }
+    const exact = finished.filter((f) => !f.job.actual.approximate).map((f) => f.ratio);
+    const approximate = finished.length - exact.length;
+    if (exact.length < 2) return { factor: 1, jobs: exact.length, approximate, applied: false };
+    return { factor: clamp(geoMean(exact)), jobs: exact.length, approximate, applied: true };
   }
 
   function applyCorrection(estimate, factor) {
@@ -142,5 +160,5 @@
     return `${p.steps} steps + ${Math.round((p.rework ?? 0.2) * 100)}% rework, starts with ${k(p.startContext)} tokens, reads ${k(p.contextPerStep)} and writes ${k(p.outputPerStep)} per step, ${Math.round((1 - cacheHitOf(p)) * 100)}% cache misses`;
   }
 
-  Object.assign(exports, { DEFAULT_CACHE_HIT, tokenCost, planTokens, agentCost, estimatePlan, estimateJob, cacheWhatIf, describePhase, correction, applyCorrection, validPlan });
+  Object.assign(exports, { DEFAULT_CACHE_HIT, tokenCost, planTokens, agentCost, estimatePlan, estimateJob, cacheWhatIf, describePhase, correction, applyCorrection, validPlan, toolOf, toolOfClient });
 })(typeof module !== "undefined" ? module.exports : (window.Estimate = {}));

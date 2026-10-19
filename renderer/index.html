@@ -94,7 +94,7 @@
             <thead>
               <tr>
                 <th>Plan</th>
-                <th class="num">Estimated <span class="info right" tabindex="0" role="img" data-tip="What your AI estimated before starting, on the planned model. Under it: the range from a smooth run to a rough one. Budget for the high end."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/></svg></span></th>
+                <th class="num">Estimated <span class="info right" tabindex="0" role="img" data-tip="What your AI estimated before starting, on the planned model, corrected by how far earlier plans from the same tool were off. Under it: the range from a smooth run to a rough one. Budget for the high end."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/></svg></span></th>
                 <th class="num">Real cost <span class="info right" tabindex="0" role="img" data-tip="What the task really cost, measured automatically while it runs. Exact for Claude Code, Codex and OpenCode, approximate for Cursor (with Cursor turned on under Track AI spending). Other tools, like Claude Desktop, only get an estimate."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/></svg></span></th>
                 <th><span class="visually-hidden">Delete</span></th>
               </tr>
@@ -252,7 +252,7 @@
             <h3>How accurate are the costs?</h3>
             <p>Claude Code, Codex and OpenCode report exact token counts, so their costs are exact.</p>
             <p>Cursor doesn't report exact token counts. TokenScope works out its costs from the size of each step and from Cursor's own count of how big each chat was, tuned against Cursor's usage page. These costs are marked with ≈ and are usually within about 15% per conversation. Cursor's usage page has the exact amounts.</p>
-            <p>Approximate costs don't change future estimates. Only plans with an exact real cost do.</p>
+            <p>Estimates learn from your finished plans, per tool. After 2 finished plans in a tool, its new estimates are corrected by how far the earlier ones were off. Tools differ a lot: Cursor runs many actions in one request, so the same work costs less there. Until a tool has 2 plans of its own, its estimates use the correction from plans with an exact cost.</p>
             <p>Costs use today's prices, except for older conversations a tool no longer keeps, which keep the prices from when TokenScope saved them.</p>
             <h3>Why is a conversation missing?</h3>
             <p>Spending only shows the tools turned on under Track AI spending, and only work done on this computer. Claude Code in the cloud or in a browser, Claude Desktop and ChatGPT keep no records here. Cursor conversations show up from when you turned Cursor on. Tools inside WSL are read only while WSL is running. And Spending only goes back as far as Keep spending history for.</p>
