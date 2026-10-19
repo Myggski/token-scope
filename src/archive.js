@@ -8,7 +8,7 @@ const fs = require("fs");
 const path = require("path");
 
 const DAY = 86400e3;
-const SAVED_TOOLS = new Set(["claude-code", "codex", "opencode"]);
+const SAVED_TOOLS = new Set(["claude-code", "codex", "opencode", "zed"]);
 
 const archiveFile = (folder) => path.join(folder, "history", "conversations.json");
 

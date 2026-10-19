@@ -76,8 +76,8 @@
 
   // Which AI tool a job ran in: the tool its real cost was measured from, else the tool that
   // asked for the estimate (the MCP client's name, e.g. "cursor-vscode", "claude-code").
-  const SOURCES = { "claude-code": "claude-code", codex: "codex", opencode: "opencode", "cursor-hook": "cursor" };
-  const CLIENTS = [[/cursor/i, "cursor"], [/claude[-_ ]?code/i, "claude-code"], [/codex/i, "codex"], [/opencode/i, "opencode"]];
+  const SOURCES = { "claude-code": "claude-code", codex: "codex", opencode: "opencode", "cursor-hook": "cursor", zed: "zed" };
+  const CLIENTS = [[/cursor/i, "cursor"], [/claude[-_ ]?code/i, "claude-code"], [/codex/i, "codex"], [/opencode/i, "opencode"], [/\bzed\b/i, "zed"]];
   function toolOf(job) {
     const source = job && job.actual && SOURCES[job.actual.source];
     if (source) return source;

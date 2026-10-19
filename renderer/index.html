@@ -95,7 +95,7 @@
               <tr>
                 <th>Plan</th>
                 <th class="num">Estimated <span class="info right" tabindex="0" role="img" data-tip="What your AI estimated before starting, on the planned model, corrected by how far earlier plans from the same tool were off. Under it: the range from a smooth run to a rough one. Budget for the high end."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/></svg></span></th>
-                <th class="num">Real cost <span class="info right" tabindex="0" role="img" data-tip="What the task really cost, measured automatically while it runs. Exact for Claude Code, Codex and OpenCode, approximate for Cursor (with Cursor turned on under Track AI spending). Other tools, like Claude Desktop, only get an estimate."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/></svg></span></th>
+                <th class="num">Real cost <span class="info right" tabindex="0" role="img" data-tip="What the task really cost, measured automatically while it runs. Exact for Claude Code, Codex, OpenCode and Zed (in Zed for the whole chat), approximate for Cursor (with Cursor turned on under Track AI spending). Other tools, like Claude Desktop, only get an estimate."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/></svg></span></th>
                 <th><span class="visually-hidden">Delete</span></th>
               </tr>
             </thead>
@@ -167,7 +167,7 @@
           <li><div><strong>Clear price cache</strong><span>Removes saved prices so TokenScope fetches fresh prices from OpenRouter. Use this if prices look out of date.</span></div><button class="soft-button" type="button" data-clear="prices">Clear</button></li>
           <li><div><strong>Reset settings</strong><span>Resets your filters, sorting, token budget, search and theme to their defaults. Your favorites and plans are kept.</span></div><button class="soft-button" type="button" data-clear="settings">Reset</button></li>
           <li><div><strong>Clear favorites</strong><span>Removes all your starred models.</span></div><button class="danger-button" type="button" data-clear="favorites">Clear</button></li>
-          <li><div><strong>Delete saved spending history</strong><span>Deletes the spending data TokenScope has saved, including the Cursor hook's recorded usage and copies of older conversation summaries. Claude Code, Codex and OpenCode keep their own records, which will still appear in Spending if those tools are tracked. To hide a tool from Spending, turn it off under Track AI spending instead.</span></div><button class="danger-button" type="button" data-clear="history">Delete</button></li>
+          <li><div><strong>Delete saved spending history</strong><span>Deletes the spending data TokenScope has saved, including the Cursor hook's recorded usage and copies of older conversation summaries. Claude Code, Codex, OpenCode and Zed keep their own records, which will still appear in Spending if those tools are tracked. To hide a tool from Spending, turn it off under Track AI spending instead.</span></div><button class="danger-button" type="button" data-clear="history">Delete</button></li>
           <li><div><strong>Delete all plans</strong><span>Deletes every plan, including its cost estimates and real costs.</span></div><button class="danger-button" type="button" data-clear="jobs">Delete</button></li>
           <li><div><strong>Delete everything</strong><span>Resets TokenScope as if you had just installed it. This removes your saved data, turns off tracking and removes the Cursor hook.</span></div><button class="danger-button" type="button" data-clear="all">Delete everything</button></li>
         </ul>
@@ -216,7 +216,7 @@
             <p>Quick back-and-forth with your AI doesn't cause cache misses by itself.</p>
             <h3>How are real costs measured?</h3>
             <p>TokenScope measures costs automatically as you work. A plan's real cost counts everything from the estimate until your AI says the task is done, or until another plan starts in the same conversation.</p>
-            <p>Claude Code, Codex and OpenCode report exact token counts, so their costs are exact. Cursor costs are approximate because it doesn't report exact token usage, and they're only measured when Cursor is turned on under Track AI spending.</p>
+            <p>Claude Code, Codex, OpenCode and Zed report exact token counts, so their costs are exact. Cursor costs are approximate because it doesn't report exact token usage, and they're only measured when Cursor is turned on under Track AI spending.</p>
             <p>Other tools only get estimates.</p>
             <h3>Is there a shortcut for estimates?</h3>
             <p>Some AI tools offer a shortcut for asking TokenScope to estimate a task.</p>
@@ -246,11 +246,12 @@
             <p>Your AI can use your spending data to answer once TokenScope is connected to your AI tool under Connect your AI tool.</p>
             <h3>How do I set it up?</h3>
             <p>Turn on the tools you want to track under Track AI spending.</p>
-            <p>Claude Code, Codex and OpenCode need no extra setup. TokenScope reads their existing usage records.</p>
+            <p>Claude Code, Codex, OpenCode and Zed need no extra setup. TokenScope reads their existing usage records.</p>
             <p>For Cursor, turning on tracking adds a small hook to Cursor's settings. Turning it off removes that hook. Cursor applies the change automatically, so no restart is needed.</p>
             <p>If your Cursor spending doesn't appear after you've used it, restart Cursor once.</p>
             <h3>How accurate are the costs?</h3>
             <p>Claude Code, Codex and OpenCode report exact token counts, so their costs are exact.</p>
+            <p>Zed's costs are exact too, from Zed's own token counts, but Zed saves only one total per conversation. So Spending can't show what drove a Zed conversation's cost, and a plan made in a Zed chat costs the whole chat. If you switch models during a chat, the whole chat is priced as the last model.</p>
             <p>Cursor doesn't report exact token counts. TokenScope works out its costs from the size of each step and from Cursor's own count of how big each chat was, tuned against Cursor's usage page. These costs are marked with ≈ and are usually within about 15% per conversation. Cursor's usage page has the exact amounts.</p>
             <p>Estimates learn from your finished plans, per tool. After 2 finished plans in a tool, its new estimates are corrected by how far the earlier ones were off. Tools differ a lot: Cursor runs many actions in one request, so the same work costs less there. Until a tool has 2 plans of its own, its estimates use the correction from plans with an exact cost.</p>
             <p>Costs use today's prices, except for older conversations a tool no longer keeps, which keep the prices from when TokenScope saved them.</p>
@@ -275,7 +276,7 @@
             </ul>
             <p>TokenScope saves conversation summaries so your spending history can last longer than the original records. For example, Claude Code deletes its own records after 30 days.</p>
             <h3>What does TokenScope read?</h3>
-            <p>TokenScope reads the usage records already saved by Claude Code, Codex and OpenCode, but only for the tools you've turned on under Track AI spending.</p>
+            <p>TokenScope reads the usage records already saved by Claude Code, Codex, OpenCode and Zed, but only for the tools you've turned on under Track AI spending.</p>
             <p>It doesn't copy those records. It saves summaries of the conversations for Spending instead.</p>
             <p>Claude Code's records are normally stored in <code id="claudeLogs"></code>. Codex's records are normally stored in <code id="codexLogs"></code>.</p>
             <p>If you run these tools inside WSL, TokenScope can also read their records there while WSL is running.</p>

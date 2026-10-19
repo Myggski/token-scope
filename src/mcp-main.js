@@ -8,7 +8,7 @@ const path = require("path");
 const { parseOpenRouter } = require("./models");
 const { createStore, dataFile } = require("./store");
 const { syncActuals } = require("./claudelogs");
-const { syncCursorActuals, syncOpenCodeActuals, readClaudeCode, readCodex, readOpenCode, readCursor } = require("./history");
+const { syncCursorActuals, syncOpenCodeActuals, readClaudeCode, readCodex, readOpenCode, readCursor, readZed, syncZedActuals } = require("./history");
 const { syncCodexActuals } = require("./codexlogs");
 const { createChecks } = require("./checks");
 const { withArchive } = require("./archive");
@@ -112,6 +112,11 @@ startMcp({
       console.error("Reading OpenCode records failed:", error);
     }
     try {
+      await syncZedActuals(store, await getModels());
+    } catch (error) {
+      console.error("Reading Zed's threads failed:", error);
+    }
+    try {
       syncCursorActuals(store, await getModels(), path.join(folder, "history", "cursor"));
     } catch (error) {
       console.error("Reading Cursor records failed:", error);
@@ -134,6 +139,7 @@ startMcp({
     if (on["claude-code"]) await attempt(() => readClaudeCode(models, since, { checks }));
     if (on.codex) await attempt(() => readCodex(models, since, { checks }));
     if (on.opencode) await attempt(() => readOpenCode(models, since, { checks }));
+    if (on.zed) await attempt(() => readZed(models, since));
     if (on.cursor) await attempt(async () => readCursor(models, since, { folder: path.join(folder, "history", "cursor"), checks }));
     // Also saves summaries, and adds the ones whose records the tool has deleted (see archive.js).
     const kept = Number(store.read().settings.historyDays);

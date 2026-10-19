@@ -55,7 +55,7 @@ const TOOLS = [
   },
   {
     name: "record_actual",
-    description: "Only for jobs whose real cost TokenScope can't measure itself: record what a job really cost, so future estimates learn from it. TokenScope measures jobs in Claude Code, Codex and OpenCode by itself, and in Cursor when the user switched on Cursor tracking; use finish_job for those. Give job_id from estimate_plan (or list_jobs); without it a new job is saved. Give cost_usd, or token counts to price at today's rates.",
+    description: "Only for jobs whose real cost TokenScope can't measure itself: record what a job really cost, so future estimates learn from it. TokenScope measures jobs in Claude Code, Codex, OpenCode and Zed by itself, and in Cursor when the user switched on Cursor tracking; use finish_job for those. Give job_id from estimate_plan (or list_jobs); without it a new job is saved. Give cost_usd, or token counts to price at today's rates.",
     inputSchema: {
       type: "object",
       required: ["model_id"],
@@ -73,7 +73,7 @@ const TOOLS = [
   },
   {
     name: "finish_job",
-    description: "Call when a job estimated with estimate_plan is done. TokenScope then measures its real cost by itself: exactly in Claude Code, Codex and OpenCode, approximately in Cursor (when the user switched on Cursor tracking), from the estimate up to this call.",
+    description: "Call when a job estimated with estimate_plan is done. TokenScope then measures its real cost by itself: exactly in Claude Code, Codex and OpenCode, approximately in Cursor (when the user switched on Cursor tracking), from the estimate up to this call. In Zed it's the whole conversation's exact cost, as Zed keeps one total per conversation: suggest a new chat for each plan.",
     inputSchema: { type: "object", required: ["job_id"], properties: { job_id: { type: "string" } } },
   },
   {
@@ -93,7 +93,7 @@ const TOOLS = [
   },
   {
     name: "get_history",
-    description: "The user's AI conversations from TokenScope's Spending tab (Claude Code, Codex, OpenCode and Cursor, only the tools the user switched on): what each cost, on which models, and facts about what happened in it. Use it when the user asks why their AI work cost what it did or what could be improved. TokenScope gives facts only; working out the reasons and suggestions is up to you. Facts per conversation: cost_drivers_usd (the work itself, cache expiries during the user's pauses, during commands, of unknown cause, and large tool outputs re-read by every later step), cache_expiries (when the provider's cache ran out and what it cost), large_outputs (big tool results and what re-reading them cost), tool_use counts (edits, reads, builds, tests), build_and_test_minutes, files_read_several_times, peak context size, cost of the first and second half, the user's longest pause, and helper agents' cost. Look for patterns across conversations, attribute each to the user's habits, the AI's way of working or slow tools, estimate what changing it would save, and suggest concrete, reasonable changes.",
+    description: "The user's AI conversations from TokenScope's Spending tab (Claude Code, Codex, OpenCode, Zed and Cursor, only the tools the user switched on; Zed conversations have totals only, without cost drivers or facts): what each cost, on which models, and facts about what happened in it. Use it when the user asks why their AI work cost what it did or what could be improved. TokenScope gives facts only; working out the reasons and suggestions is up to you. Facts per conversation: cost_drivers_usd (the work itself, cache expiries during the user's pauses, during commands, of unknown cause, and large tool outputs re-read by every later step), cache_expiries (when the provider's cache ran out and what it cost), large_outputs (big tool results and what re-reading them cost), tool_use counts (edits, reads, builds, tests), build_and_test_minutes, files_read_several_times, peak context size, cost of the first and second half, the user's longest pause, and helper agents' cost. Look for patterns across conversations, attribute each to the user's habits, the AI's way of working or slow tools, estimate what changing it would save, and suggest concrete, reasonable changes.",
     inputSchema: {
       type: "object",
       properties: {
@@ -250,7 +250,7 @@ function createHandlers({ store, getModels, sync = async () => {}, client = () =
             : `Adjusted by ${round(fix.factor, 2)}x, from ${fix.jobs} past jobs with exact real costs (this tool doesn't have 2 finished jobs of its own yet).`
           : `Not adjusted yet: needs 2 finished jobs from this tool, or 2 with an exact real cost from any tool (has ${fix.jobs}).`,
         estimates,
-        next: job ? `Show the user the likely cost and range per model. If the work continues in another session, call continue_job with job_id "${job.id}" there first. When all of it is done, call finish_job with that job_id. In Claude Code, Codex and OpenCode, and in Cursor with tracking on, the real cost is measured automatically. Elsewhere, use record_actual.` : null,
+        next: job ? `Show the user the likely cost and range per model. If the work continues in another session, call continue_job with job_id "${job.id}" there first. When all of it is done, call finish_job with that job_id. In Claude Code, Codex, OpenCode and Zed, and in Cursor with tracking on, the real cost is measured automatically. Elsewhere, use record_actual.` : null,
       };
     },
 
@@ -276,7 +276,8 @@ function createHandlers({ store, getModels, sync = async () => {}, client = () =
           : job.actual && job.actual.source === "codex" ? "Real cost measured from the Codex session log."
           : job.actual && job.actual.source === "opencode" ? "Real cost measured from OpenCode's records."
           : job.actual && job.actual.source === "cursor-hook" ? "Real cost measured approximately from TokenScope's Cursor records."
-          : "TokenScope couldn't measure this job (it measures Claude Code, Codex and OpenCode, and Cursor when tracking is on). If you know the cost, record it with record_actual.",
+          : job.actual && job.actual.source === "zed" ? "Real cost measured exactly from Zed, for the whole conversation (Zed keeps one total per conversation)."
+          : "TokenScope couldn't measure this job (it measures Claude Code, Codex, OpenCode and Zed, and Cursor when tracking is on). If you know the cost, record it with record_actual.",
       };
     },
 
@@ -377,7 +378,7 @@ function startMcp({ store, getModels, sync, history, version, input = process.st
         protocolVersion: params.protocolVersion || "2025-06-18",
         capabilities: { tools: {}, prompts: {} },
         serverInfo: { name: "tokenscope", version },
-        instructions: "TokenScope has current AI model prices and the user's own job history. In the app, estimated jobs are on the Plans tab and every conversation's cost is on the Spending tab; use those names when you talk to the user. When the user asks what a task will cost (or uses the estimate prompt), plan it first without changing anything (or use the plan you already have), then call estimate_plan ONCE for the whole plan and show the likely cost per model. A simple plan is sent as one size. A plan split into phases or separate agents (subagents, parallel agents, later sessions) is still one job: pass each part as a phase in that same call. Price it on the models the user names, planned one first; if they name none, their favorites are used. Whenever work on an estimated job starts in a new session or by a separate agent, call continue_job with its job id first. When all the work is done, call finish_job. In Claude Code, Codex and OpenCode the real cost is then measured automatically from their own records (subagents included), and estimates improve from it. Cache hits drive most of the cost: set cache_hit_rate lower than the default when the work has long pauses, model switches or many short sessions, and show the user the assumptions and the 'if cache misses were' numbers with the estimate (talk about cache misses, the share paid in full, not hit rates). When the user asks why their AI work cost what it did, or what could be improved, call get_history and reason about its facts yourself.",
+        instructions: "TokenScope has current AI model prices and the user's own job history. In the app, estimated jobs are on the Plans tab and every conversation's cost is on the Spending tab; use those names when you talk to the user. When the user asks what a task will cost (or uses the estimate prompt), plan it first without changing anything (or use the plan you already have), then call estimate_plan ONCE for the whole plan and show the likely cost per model. A simple plan is sent as one size. A plan split into phases or separate agents (subagents, parallel agents, later sessions) is still one job: pass each part as a phase in that same call. Price it on the models the user names, planned one first; if they name none, their favorites are used. Whenever work on an estimated job starts in a new session or by a separate agent, call continue_job with its job id first. When all the work is done, call finish_job. In Claude Code, Codex, OpenCode and Zed the real cost is then measured automatically from their own records (subagents included; in Zed for the whole conversation), and estimates improve from it. Cache hits drive most of the cost: set cache_hit_rate lower than the default when the work has long pauses, model switches or many short sessions, and show the user the assumptions and the 'if cache misses were' numbers with the estimate (talk about cache misses, the share paid in full, not hit rates). When the user asks why their AI work cost what it did, or what could be improved, call get_history and reason about its facts yourself.",
       } });
     }
     if (method === "ping") return send({ id, result: {} });

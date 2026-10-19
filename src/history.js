@@ -9,6 +9,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { cursorChats } = require("./cursordb");
+const { loadZedThreads } = require("./zed");
 const { byCost, listAllLogs, logsFolders, parseLines, sumUsage, findPricedModel, usageCost } = require("./claudelogs");
 const { wslHomes } = require("./wsl");
 const { DEFAULT_CACHE_HIT, estimateJob } = require("./estimate");
@@ -1000,4 +1001,120 @@ function syncCursorActuals(store, models, folder) {
   return changed;
 }
 
-module.exports = { CURSOR, startOffset, cursorParts, readClaudeCode, readCodex, readOpenCode, findOpenCodeActuals, syncOpenCodeActuals, openCodeFolder, openCodeFolders, openCodeFound, readCursor, readCursorRecords, cursorJobActuals, syncCursorActuals, replayCursor, summarize };
+// ---------- Zed (its own agent's threads database, see zed.js) ----------
+
+// Zed keeps one exact total per conversation, so a conversation has its cost, models and subagents,
+// but no breakdown of what drove the cost (totalsOnly).
+function zedGroups(threads) {
+  const byId = new Map(threads.map((t) => [t.id, t]));
+  const rootOf = (t) => {
+    let root = t, seen = new Set([t.id]);
+    while (root.parent && byId.has(root.parent) && !seen.has(root.parent)) {
+      root = byId.get(root.parent);
+      seen.add(root.id);
+    }
+    return root;
+  };
+  const groups = new Map(); // root id -> { root, helpers }
+  for (const t of threads) {
+    const root = rootOf(t);
+    if (!groups.has(root.id)) groups.set(root.id, { root, helpers: [] });
+    if (root !== t) groups.get(root.id).helpers.push(t);
+  }
+  return [...groups.values()];
+}
+
+const zedUsage = (t) => ({ requests: 0, input: t.tokens.input, cacheRead: t.tokens.read, write5m: t.tokens.write, write1h: 0, output: t.tokens.output });
+function zedCost(models, group) {
+  const byModel = new Map();
+  let helperCost = 0;
+  const helpers = [];
+  for (const t of [group.root, ...group.helpers]) {
+    const name = t.model || "unknown";
+    const u = byModel.get(name) || ZERO();
+    const add = zedUsage(t);
+    for (const k of Object.keys(add)) u[k] += add[k];
+    byModel.set(name, u);
+    if (t !== group.root) {
+      const p = findPricedModel(models, name);
+      const cost = p ? usageCost(p, add) : 0;
+      helperCost += cost;
+      helpers.push({ title: t.title || "Subagent", cost });
+    }
+  }
+  return { priced: summarize(byModel, models), helperCost, helpers };
+}
+
+async function readZed(models, since, { folder } = {}) {
+  const out = [];
+  for (const group of zedGroups(await loadZedThreads(folder))) {
+    const all = [group.root, ...group.helpers];
+    const end = Math.max(...all.map((t) => t.end));
+    if (end < since) continue;
+    const { priced, helpers } = zedCost(models, group);
+    if (!priced.models.length) continue;
+    out.push({
+      id: `zed:${group.root.id}`, tool: "zed", title: group.root.title || "Untitled conversation",
+      project: group.root.project, start: Math.min(...all.map((t) => t.start || t.end)), end, approximate: false, totalsOnly: true,
+      jobIds: [...new Set(all.flatMap((t) => t.jobs))], ...priced,
+      ...(helpers.length ? { helpers, includes: group.helpers.map((h) => `zed:${h.id}`) } : {}),
+      insights: null, // no per-request times, so nothing to break the cost down by
+    });
+  }
+  return out;
+}
+
+// Real costs of plans made in Zed: the whole conversation the plan was made in (Zed keeps one total
+// per conversation), so wholeChat is set and the app says so. Exact otherwise.
+async function findZedActuals(jobs, models, { folder, now = Date.now() } = {}) {
+  const open = jobs.filter((j) => Date.parse(j.createdAt) > now - 60 * 86400e3 &&
+    (!j.actual || j.actual.source === "ai" || (j.actual.source === "zed" && (j.actual.status === "running" || !j.endedAt))));
+  if (!open.length) return {};
+  const groups = zedGroups(await loadZedThreads(folder));
+  const changes = {};
+  for (const job of open) {
+    const group = groups.find((g) => [g.root, ...g.helpers].some((t) => t.jobs.includes(job.id)));
+    if (!group) continue;
+    const { priced } = zedCost(models, group);
+    if (!priced.models.length) continue;
+    const main = [...priced.models].sort((a, b) => b.output - a.output)[0];
+    const sum = (key) => priced.models.reduce((total, m) => total + m[key], 0);
+    const last = Math.max(group.root.end, ...group.helpers.map((t) => t.end));
+    const actual = {
+      modelId: main.modelId || main.model, costUsd: Number(priced.cost.toFixed(4)),
+      inputTokens: sum("input"), cachedTokens: sum("cacheRead"), cacheWriteTokens: sum("cacheWrite"), outputTokens: sum("output"),
+      source: "zed", wholeChat: true, status: !job.endedAt && now - last < 15 * 60e3 ? "running" : "done",
+      sessionId: group.root.id, lastActivity: new Date(last).toISOString(),
+      models: byCost(priced.models.map((m) => ({ model: m.modelId || m.model, cost: m.cost === null ? null : Number(m.cost.toFixed(4)) }))),
+      ...(priced.unpriced ? { unpricedModels: priced.models.filter((m) => m.cost === null).map((m) => m.model) } : {}),
+    };
+    const mainPriced = models.find((m) => m.id === actual.modelId);
+    const addEstimate = job.plan && mainPriced && !(job.estimates || {})[actual.modelId] ? estimateJob(mainPriced, job.plan) : null;
+    const before = job.actual ? JSON.stringify({ ...job.actual, recordedAt: undefined }) : null;
+    if (before !== JSON.stringify({ ...actual, recordedAt: undefined }) || addEstimate) {
+      changes[job.id] = { actual: { ...actual, recordedAt: new Date(now).toISOString() }, addEstimate };
+    }
+  }
+  return changes;
+}
+
+async function syncZedActuals(store, models, options) {
+  const changes = await findZedActuals(store.read().jobs, models, options);
+  if (!Object.keys(changes).length) return 0;
+  let changed = 0;
+  store.update((data) => {
+    for (const job of data.jobs) {
+      const change = changes[job.id];
+      if (!change || (job.actual && ["claude-code", "codex", "opencode"].includes(job.actual.source))) continue;
+      job.actual = change.actual;
+      changed++;
+      if (change.addEstimate) {
+        const e = change.addEstimate;
+        job.estimates = { ...(job.estimates || {}), [change.actual.modelId]: { low: Number(e.low.toFixed(4)), likely: Number(e.likely.toFixed(4)), high: Number(e.high.toFixed(4)), ...(e.phases ? { phases: e.phases.map((p) => Number(p.likely.toFixed(4))) } : {}), addedLater: true } };
+      }
+    }
+  });
+  return changed;
+}
+
+module.exports = { readZed, findZedActuals, syncZedActuals, CURSOR, startOffset, cursorParts, readClaudeCode, readCodex, readOpenCode, findOpenCodeActuals, syncOpenCodeActuals, openCodeFolder, openCodeFolders, openCodeFound, readCursor, readCursorRecords, cursorJobActuals, syncCursorActuals, replayCursor, summarize };

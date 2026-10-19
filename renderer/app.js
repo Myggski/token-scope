@@ -219,9 +219,9 @@ function estimateCell(job) {
 function actualCell(job) {
   const a = job.actual;
   if (!a) {
-    // Real costs are measured for Claude Code, Codex, OpenCode and (with tracking on) Cursor. Other tools only get estimates.
+    // Real costs are measured for Claude Code, Codex, OpenCode, Zed and (with tracking on) Cursor. Other tools only get estimates.
     const by = clientName(job.client);
-    const measurable = !by || ["Claude Code", "Codex", "OpenCode", "Cursor"].includes(by);
+    const measurable = !by || ["Claude Code", "Codex", "OpenCode", "Zed", "Cursor"].includes(by);
     return `<td class="num">–<span class="sub-value">${measurable ? "not measured yet" : `estimate only, ${escape(by)} isn't measured`}</span></td>`;
   }
   const estimate = job.estimates && job.estimates[a.modelId];
@@ -230,15 +230,18 @@ function actualCell(job) {
   else if (estimate && estimate.likely > 0) parts.push(`${(a.costUsd / (estimate.likely * fixOf(job))).toFixed(1)}× estimate`);
   if (a.source === "ai") parts.push("reported by AI");
   else if (a.approximate) parts.push("approximate");
+  else if (a.wholeChat) parts.push("whole chat");
   if (a.unpricedModels) parts.push("some models unpriced");
+  // Zed keeps one total per conversation, so its plans cost the whole chat; the tooltip says why.
+  const tip = a.wholeChat ? ` title="Zed saves one total per conversation, so this is the whole chat's cost, including any work before or after the plan. Start a new chat for each plan to keep it exact."` : "";
   // ≈ like in History: worked out, not counted exactly.
-  return `<td class="num">${a.approximate ? "≈ " : ""}${money(a.costUsd)}<span class="sub-value">${parts.join(" · ")}</span></td>`;
+  return `<td class="num"${tip}>${a.approximate ? "≈ " : ""}${money(a.costUsd)}<span class="sub-value">${parts.join(" · ")}</span></td>`;
 }
 
 // The AI app that made a job, as people know it.
 function clientName(client) {
   if (!client) return null;
-  const known = [[/cursor/i, "Cursor"], [/claude[-_ ]?code/i, "Claude Code"], [/claude/i, "Claude Desktop"], [/codex/i, "Codex"], [/opencode/i, "OpenCode"], [/chatgpt|openai/i, "ChatGPT"], [/vscode|visual studio code/i, "VS Code"]];
+  const known = [[/cursor/i, "Cursor"], [/claude[-_ ]?code/i, "Claude Code"], [/claude/i, "Claude Desktop"], [/codex/i, "Codex"], [/opencode/i, "OpenCode"], [/\bzed\b/i, "Zed"], [/chatgpt|openai/i, "ChatGPT"], [/vscode|visual studio code/i, "VS Code"]];
   const hit = known.find(([pattern]) => pattern.test(client));
   return hit ? hit[1] : client;
 }
@@ -502,6 +505,9 @@ function aiTools(c) {
   const mcpServers = JSON.stringify({ mcpServers: { tokenscope: { command: c.command, args: c.args, ...(hasEnv ? { env } : {}) } } }, null, 2);
   const toml = `[mcp_servers.tokenscope]\ncommand = '${c.command}'\nargs = [${c.args.map((a) => `'${a}'`).join(", ")}]` + (hasEnv ? `\nenv = { ${Object.entries(env).map(([k, v]) => `${k} = "${v}"`).join(", ")} }` : "");
   const opencode = JSON.stringify({ $schema: "https://opencode.ai/config.json", mcp: { tokenscope: { type: "local", command: [c.command, ...c.args], ...(hasEnv ? { environment: env } : {}), enabled: true } } }, null, 2);
+  // Zed: MCP servers go under "context_servers" in its settings.json.
+  const zed = JSON.stringify({ context_servers: { tokenscope: { command: c.command, args: c.args, env } } }, null, 2);
+  const zedSettings = c.windows ? file("AppData", "Roaming", "Zed", "settings.json") : file(".config", "zed", "settings.json");
   const quote = (s) => (/[\s"]/.test(s) ? `"${s}"` : s);
   const claudeAdd = `claude mcp add --scope user ${Object.entries(env).map(([k, v]) => `-e ${k}=${v} `).join("")}tokenscope -- ${[c.command, ...c.args].map(quote).join(" ")}`;
   const fields = `Name: tokenscope\nCommand: ${c.command}\nArguments: ${c.args.join(" ")}` + (hasEnv ? `\nEnvironment variable: ${envText}` : "");
@@ -542,9 +548,15 @@ function aiTools(c) {
       restart: "Restart OpenCode.",
       hint: `In OpenCode, MCP servers go in ${file(".config", "opencode", "opencode.json")} (or opencode.jsonc, if that's the file that exists), in this format:\n${opencode}`,
     },
+    zed: {
+      name: "Zed", agent: true, measured: true,
+      steps: [`Open Zed's settings (${zedSettings}, or in Zed: Settings → Open Settings File) and add this. If it already has a "context_servers" section, add the tokenscope entry inside it.`], snippet: zed,
+      restart: "Check the Agent panel's settings in Zed: tokenscope should be listed under MCP servers and switched on.",
+      hint: `In Zed, MCP servers go under "context_servers" in ${zedSettings}, in this format:\n${zed}`,
+    },
     other: {
       name: "Other", agent: true, other: true,
-      steps: ["Any AI tool that supports MCP servers (VS Code, Windsurf, Gemini CLI, Zed and others) can use TokenScope. Add a local (stdio) MCP server with these settings." + (hasEnv ? " The environment variable matters: without it TokenScope opens as a window instead of talking to the AI." : "")],
+      steps: ["Any AI tool that supports MCP servers (VS Code, Windsurf, Gemini CLI and others) can use TokenScope. Add a local (stdio) MCP server with these settings." + (hasEnv ? " The environment variable matters: without it TokenScope opens as a window instead of talking to the AI." : "")],
       snippet: fields,
       restart: "Restart the tool if it asks.",
       hint: "",
@@ -573,7 +585,7 @@ function snippet(id, text, primary = false) {
 }
 
 // Which tool a connection belongs to. Connections are saved under the name each AI tool gives itself.
-const CONNECTION_TOOLS = [[/cursor/i, "cursor"], [/claude[-_ ]?code/i, "claude-code"], [/claude/i, "claude-desktop"], [/codex/i, "codex"], [/opencode/i, "opencode"]];
+const CONNECTION_TOOLS = [[/cursor/i, "cursor"], [/claude[-_ ]?code/i, "claude-code"], [/claude/i, "claude-desktop"], [/codex/i, "codex"], [/opencode/i, "opencode"], [/\bzed\b/i, "zed"]];
 function connectedTools() {
   const seen = {};
   for (const [name, info] of Object.entries(state.connections)) {
@@ -598,7 +610,8 @@ function renderConnect() {
   $("aiTools").innerHTML = Object.entries(tools).map(([key, t]) => {
     const open = state.aiTool === key;
     const status = seen[key] ? `Connected, last used ${lastUsed(seen[key])}.` : t.other ? "Any other tool that supports MCP servers, like VS Code or Windsurf." : "Not connected yet.";
-    const costs = t.measured ? "Real costs are measured automatically."
+    const costs = key === "zed" ? "Real costs are measured automatically, one total per conversation."
+      : t.measured ? "Real costs are measured automatically."
       : key === "cursor" ? "Real costs are measured when Cursor is turned on under Track AI spending."
       : "Estimates only, no real costs.";
     return `
@@ -646,7 +659,7 @@ function renderNotices() {
 
 // ---------- History and tracking ----------
 
-const TOOL_NAMES = { "claude-code": "Claude Code", codex: "Codex", opencode: "OpenCode", cursor: "Cursor" };
+const TOOL_NAMES = { "claude-code": "Claude Code", codex: "Codex", opencode: "OpenCode", zed: "Zed", cursor: "Cursor" };
 const costText = (cost, approximate) => `${approximate ? "≈ " : ""}${money(cost)}`;
 
 // One switch row per AI tool. Used in Settings & help and on History before anything is on.
@@ -812,6 +825,10 @@ function conversationPanel(c) {
         <h4>What the cost was made of</h4>
         ${driversBar(c)}
         <p class="panel-note">${escape(factsLine(c))}.</p>
+      </div>` : c.totalsOnly ? `
+      <div class="panel-block">
+        <h4>What the cost was made of</h4>
+        <p class="panel-note">${escape(TOOL_NAMES[c.tool] || c.tool)} only saves a total for each conversation, so TokenScope can't show what drove the cost. The cost itself is exact.</p>
       </div>` : "";
   // Subagents this conversation started (OpenCode runs each in a session of its own). Their cost is
   // included above. Most expensive first, the same name ran again shown once with a count, and 5 at
@@ -854,7 +871,7 @@ function conversationPanel(c) {
           <tbody>${c.models.map((m) => `
             <tr>
               <td>${escape(historyModelName(m))}</td>
-              <td class="num">${m.requests}</td>
+              <td class="num">${c.totalsOnly ? "–" : m.requests}</td>
               <td class="num">${formatTokens(m.input)}</td>
               <td class="num">${m.input ? Math.round((m.cacheRead / m.input) * 100) : 0}%</td>
               <td class="num">${formatTokens(m.output)}</td>
@@ -1362,7 +1379,7 @@ const CLEAR_QUESTIONS = {
   settings: "Reset filters, sort, token budget, search and theme? Favorites and plans stay.",
   favorites: "Remove all your favorites?",
   jobs: "Delete all plans, with their estimates and real costs? This can't be undone.",
-  history: "Delete the history TokenScope saved? Cursor conversations, and older ones Claude Code, Codex or OpenCode no longer keep themselves, disappear from Spending. This can't be undone.",
+  history: "Delete the history TokenScope saved? Cursor conversations, and older ones Claude Code, Codex, OpenCode or Zed no longer keep themselves, disappear from Spending. This can't be undone.",
   all: "Delete everything and start over as if TokenScope was just installed? This removes plans, favorites, settings, saved prices and saved history, and switches tracking off. This can't be undone.",
 };
 const CLEAR_DONE = {

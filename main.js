@@ -7,7 +7,8 @@ const { parseOpenRouter } = require("./src/models");
 const { createStore, dataFile } = require("./src/store");
 const { syncActuals, logsFolder, logsFolders } = require("./src/claudelogs");
 const { setJobModels } = require("./src/jobs");
-const { readClaudeCode, readCodex, readOpenCode, openCodeFound, readCursor, syncCursorActuals, syncOpenCodeActuals } = require("./src/history");
+const { readClaudeCode, readCodex, readOpenCode, openCodeFound, readCursor, syncCursorActuals, syncOpenCodeActuals, readZed, syncZedActuals } = require("./src/history");
+const { zedFound } = require("./src/zed");
 const { codexHome, codexFound, syncCodexActuals } = require("./src/codexlogs");
 const { installHook, removeHook, hookInstalled, hookComplete, cursorFound, lastRecord, lastProblem, problemsFile, pruneRecords } = require("./src/cursorhook");
 const { createChecks, checkOpenRouter } = require("./src/checks");
@@ -137,6 +138,8 @@ const SOURCES = [
     note: (on) => on ? "On. TokenScope reads Codex's existing usage records, from the app, the editor extension and the command line." : "TokenScope reads Codex's existing usage records, from the app, the editor extension and the command line. No extra setup needed." },
   { id: "opencode", name: "OpenCode", found: () => openCodeFound(),
     note: (on) => on ? "On. TokenScope reads OpenCode's existing usage records." : "TokenScope reads OpenCode's existing usage records. No extra setup needed." },
+  { id: "zed", name: "Zed", found: () => zedFound(),
+    note: (on) => on ? "On. TokenScope reads Zed's existing usage records, one total per conversation." : "TokenScope reads the usage records Zed's own AI agent already keeps. Zed saves one total per conversation, so costs are exact but without a breakdown. No extra setup needed." },
   { id: "cursor", name: "Cursor", found: () => cursorFound(),
     note: (on, todo, recording) => !on ? "Cursor doesn't save usage records that TokenScope can read directly. Turn this on to add a small hook to Cursor that records usage as you work, even when TokenScope is closed. It records usage details, never your code, prompts, commands or AI replies. No restart needed. Costs are approximate, not exact amounts."
       : todo && todo.kind === "missing" ? "On, but TokenScope's hook is missing from Cursor's settings."
@@ -209,6 +212,7 @@ async function historyList(days = keepDays()) {
   await attempt("claude-code", () => readClaudeCode(currentModels, since, { checks }));
   await attempt("codex", () => readCodex(currentModels, since, { checks }));
   await attempt("opencode", () => readOpenCode(currentModels, since, { checks }));
+  await attempt("zed", () => readZed(currentModels, since));
   await attempt("cursor", async () => readCursor(currentModels, since, { folder: cursorRecords(), checks }));
   // Saves summaries and adds the ones whose records the tool has deleted since (see archive.js).
   const tracked = new Set(Object.keys(on).filter((id) => on[id]));
@@ -315,6 +319,11 @@ function startWindowApp() {
       if (await syncOpenCodeActuals(store, currentModels)) changed();
     } catch (error) {
       console.error("Reading OpenCode records failed:", error);
+    }
+    try {
+      if (await syncZedActuals(store, currentModels)) changed();
+    } catch (error) {
+      console.error("Reading Zed's threads failed:", error);
     }
     try {
       if (syncCursorActuals(store, currentModels, cursorRecords())) changed();

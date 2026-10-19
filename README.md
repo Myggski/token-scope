@@ -21,10 +21,11 @@ The app shows facts only. The suggestions come from your AI.
 | Claude Code | ✓ | ✓ | ✓ |
 | Codex (app, editor extension, command line) | ✓ | ✓ | ✓ |
 | OpenCode | ✓ | ✓ | ✓ |
+| Zed (its own AI agent) | ✓ | ✓ (whole chat) | ✓ (no breakdown) |
 | Cursor | ✓ | ≈ | ≈ |
 | Claude Desktop and other MCP tools | ✓ | | |
 
-≈ means approximate, because Cursor doesn't keep token counts. TokenScope works them out from the size of each step, usually within about 15% of Cursor's usage page. Estimates are corrected per tool from your finished plans. Claude Code, Codex and OpenCode conversations show up in Spending as far back as those tools keep them, while Cursor conversations show up from when you turn on Cursor tracking. Using ChatGPT? It can't connect to programs on your computer, but Codex and OpenCode can, and both can sign in with your ChatGPT account. Claude Code, Codex and OpenCode running inside WSL are read too, while WSL is running.
+≈ means approximate, because Cursor doesn't keep token counts. TokenScope works them out from the size of each step, usually within about 15% of Cursor's usage page. Estimates are corrected per tool from your finished plans. Zed saves one exact total per conversation, so a plan made in a Zed chat costs the whole chat, and Spending can't show what drove a Zed conversation's cost. Claude Code, Codex, OpenCode and Zed conversations show up in Spending as far back as those tools keep them, while Cursor conversations show up from when you turn on Cursor tracking. Using ChatGPT? It can't connect to programs on your computer, but Codex and OpenCode can, and both can sign in with your ChatGPT account. Claude Code, Codex and OpenCode running inside WSL are read too, while WSL is running.
 
 ## Privacy
 
@@ -55,7 +56,7 @@ Where things are:
 
 - `src/mcp.js`, `src/mcp-main.js`: the [MCP](https://modelcontextprotocol.io) server your AI talks to.
 - `src/estimate.js`, `src/jobs.js`: the cost math and saved plans (called jobs in the code).
-- `src/claudelogs.js`, `src/codexlogs.js`, `src/history.js`: reading Claude Code, Codex, OpenCode and Cursor records, for Spending and real costs.
+- `src/claudelogs.js`, `src/codexlogs.js`, `src/history.js`, `src/zed.js`: reading Claude Code, Codex, OpenCode, Zed and Cursor records, for Spending and real costs.
 - `src/archive.js`: saved summaries, so Spending keeps conversations after a tool deletes its own records.
 - `src/wsl.js`: finding the tools' records inside WSL.
 - `src/cursorhook.js`, `src/cursor-hook.js`: the optional Cursor hook.
