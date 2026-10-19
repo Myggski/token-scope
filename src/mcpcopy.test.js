@@ -53,12 +53,24 @@ const done = new Promise((resolve, reject) => {
 });
 for (const m of messages) child.stdin.write(JSON.stringify(m) + "\n");
 
-done.then(() => {
+// Windows keeps the folder locked until the stopped program has fully exited, so wait for that.
+const stop = () => new Promise((resolve) => {
+  if (child.exitCode !== null) return resolve();
+  child.once("exit", resolve);
   child.kill();
+});
+const cleanUp = () => {
+  try {
+    fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  } catch {} // a leftover temp folder isn't a failure
+};
+
+done.then(async () => {
+  await stop();
   assert.strictEqual(replies.get(1).result.serverInfo.version, version, "reports this version, not 1.0.0");
   assert.ok(replies.get(2).result.tools.some((t) => t.name === "estimate_plan"));
   assert.ok(!replies.get(3).error && !replies.get(3).result.isError, `list_jobs works: ${JSON.stringify(replies.get(3)).slice(0, 300)}`);
-  fs.rmSync(tmp, { recursive: true, force: true });
+  cleanUp();
   console.log("mcp copy tests passed");
 }).catch((error) => {
   child.kill();
