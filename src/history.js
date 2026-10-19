@@ -461,8 +461,11 @@ function dropForkCopies(messages, sessions = new Map()) {
   }
   for (const [id, info] of sessions) {
     if (!info || !info.forkOf || !bySession.has(id) || !bySession.has(info.forkOf)) continue;
+    // Only replies the original had when the fork was made can have been copied; what you add to the
+    // original later never matches the fork.
+    const madeAt = Number(info.created) || Infinity;
     const originals = new Map();
-    for (const m of bySession.get(info.forkOf)) originals.set(sig(m), (originals.get(sig(m)) || 0) + 1);
+    for (const m of bySession.get(info.forkOf)) if (m.time <= madeAt) originals.set(sig(m), (originals.get(sig(m)) || 0) + 1);
     for (const m of [...bySession.get(id)].sort((a, b) => a.time - b.time)) {
       const n = originals.get(sig(m));
       if (!n) continue;

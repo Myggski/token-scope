@@ -171,6 +171,16 @@ const T = Date.UTC(2026, 9, 1, 10, 0);
   ]);
   dropForkCopies(marked, new Map([["main", { created: 900 }], ["fork", { created: 8000, forkOf: "main" }]]));
   assert.deepStrictEqual([...marked.keys()].sort(), ["k3", "o1", "o2"], "each original reply matches one copy; the fork's own reply stays");
+  // You go back to the original after forking: its new replies stay its own, and a fork reply that
+  // happens to match one of them isn't taken for a copy (it didn't exist when the fork was made).
+  const later = new Map([
+    ["o1", { id: "o1", session: "main", model: "m", time: 1000, tokens: tok }],
+    ["k1", { id: "k1", session: "fork", model: "m", time: 9000, tokens: tok }],
+    ["o9", { id: "o9", session: "main", model: "m", time: 20000, tokens: { ...tok, output: 33 } }],
+    ["k9", { id: "k9", session: "fork", model: "m", time: 15000, tokens: { ...tok, output: 33 } }],
+  ]);
+  dropForkCopies(later, new Map([["main", { created: 900 }], ["fork", { created: 8000, forkOf: "main" }]]));
+  assert.deepStrictEqual([...later.keys()].sort(), ["k9", "o1", "o9"], "copy dropped; both sides' later work kept");
   console.log("fork copy tests passed");
 }
 
