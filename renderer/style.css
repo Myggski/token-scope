@@ -378,4 +378,5 @@ table.mini tr:last-child td { border-bottom: 0; }
 .expander.is-open .expander-head .chevron { transform: rotate(45deg); }
 .expander-body { padding: 0 16px 16px 16px; border-top: 1px solid var(--line); }
 .expander-body .model-rows.subagent-rows li { padding-right: 0; }
-.expander-body .list-footer { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+/* #historyOn sets the main list's footer 8px higher; this one sits right under its rows, its line where a row line would be. */
+#historyOn .expander-body .list-footer { margin-top: 0; padding-top: 16px; border-top: 1px solid var(--line); }
