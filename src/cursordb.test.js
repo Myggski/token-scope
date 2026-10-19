@@ -24,7 +24,7 @@ db.exec(`CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB
 const chat = "3795c593-6cf4-454b-bdec-2e70609b7bbf";
 const T = Date.UTC(2026, 9, 18, 20, 27);
 const put = db.prepare("INSERT INTO cursorDiskKV VALUES (?, ?)");
-db.prepare("INSERT INTO composerHeaders (composerId, lastUpdatedAt) VALUES (?, ?)").run(chat, T + 600e3);
+db.prepare("INSERT INTO composerHeaders (composerId, lastUpdatedAt, isArchived) VALUES (?, ?, 1)").run(chat, T + 600e3);
 put.run(`composerData:${chat}`, JSON.stringify({ composerId: chat, name: "Quest journal component bugs", contextTokensUsed: 157506, text: "never read" }));
 const user = (id, req, size) => put.run(`bubbleId:${chat}:${id}`, JSON.stringify({ type: 1, bubbleId: id, requestId: req, text: "secret", ...(size ? { contextWindowStatusAtCreation: { tokensUsed: size, tokenLimit: 200000 } } : {}) }));
 user("b1", "turn-1", null);
@@ -38,6 +38,7 @@ assert.strictEqual(info.size, 1, "only chats Cursor has");
 const q = info.get(chat);
 assert.strictEqual(q.name, "Quest journal component bugs");
 assert.strictEqual(q.end, 157506);
+assert.strictEqual(q.archived, true, "archived in Cursor");
 assert.deepStrictEqual([...q.turns], [["turn-2", 93497]], "sizes per message, nothing from other chats");
 assert.ok(!JSON.stringify([...q.turns]).includes("secret"));
 assert.strictEqual(cursorChats([chat], { file: path.join(dir, "missing.vscdb") }).size, 0, "no database: nothing");
@@ -62,6 +63,7 @@ const [named] = readCursor(models, 0, { folder: records, chats: (ids) => cursorC
 const [plain] = readCursor(models, 0, { folder: records, chats: () => new Map() });
 assert.strictEqual(named.title, "Quest journal component bugs");
 assert.strictEqual(plain.title, "Cursor conversation");
+assert.strictEqual(named.archived, true);
 assert.strictEqual(named.models[0].requests, 4, "three requests in turn 1 (the batch counts once), one in turn 2");
 assert.ok(named.cost > plain.cost * 1.5, "Cursor's real size makes the turn after it cost more");
 

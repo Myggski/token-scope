@@ -355,3 +355,7 @@ table.mini tr:last-child td { border-bottom: 0; }
 .compare-rows .sub-value { white-space: nowrap; }
 /* Notes under a plan's costs ("1.8× estimate · approximate") wrap inside their column instead of running under the Delete button. */
 #jobRows td.num .sub-value { white-space: normal; }
+/* Space kept for Spending's totals and filters while it loads (see renderHistory). */
+.tile.placeholder, .chip.placeholder { visibility: hidden; }
+.chip.placeholder { display: inline-flex; }
+.chip:disabled { opacity: 0.38; cursor: default; }

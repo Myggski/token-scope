@@ -49,7 +49,7 @@ const range = (prefix) => [prefix, prefix.slice(0, -1) + String.fromCharCode(pre
 // Cache per chat, kept while Cursor hasn't changed the chat.
 const cache = new Map(); // id -> { updated, info }
 
-// ids: conversation ids from the hook. Returns Map id -> { name, end, turns: Map(turn id -> size) }.
+// ids: conversation ids from the hook. Returns Map id -> { name, end, archived, turns: Map(turn id -> size) }.
 function cursorChats(ids, { file = databaseFile() } = {}) {
   const out = new Map();
   const Database = sqlite();
@@ -57,14 +57,15 @@ function cursorChats(ids, { file = databaseFile() } = {}) {
   let db;
   try {
     db = new Database(file, { readOnly: true });
-    const header = db.prepare("SELECT lastUpdatedAt FROM composerHeaders WHERE composerId = ?");
+    const header = db.prepare("SELECT * FROM composerHeaders WHERE composerId = ?");
     const chat = db.prepare("SELECT value FROM cursorDiskKV WHERE key = ?");
     const messages = db.prepare("SELECT value FROM cursorDiskKV WHERE key >= ? AND key < ?");
     for (const id of ids) {
-      let updated = null;
+      let updated = null, archivedHeader = null;
       try {
         const h = header.get(id);
-        updated = h ? h.lastUpdatedAt : null;
+        updated = h ? `${h.lastUpdatedAt}|${h.isArchived}` : null; // archiving doesn't change lastUpdatedAt
+        archivedHeader = h && h.isArchived !== undefined ? !!h.isArchived : null;
       } catch {} // older Cursor: no headers table, so no caching
       const cached = cache.get(id);
       if (cached && updated !== null && cached.updated === updated) {
@@ -84,6 +85,7 @@ function cursorChats(ids, { file = databaseFile() } = {}) {
         info = {
           name: typeof data.name === "string" && data.name.trim() ? data.name.trim().slice(0, 200) : null,
           end: data.contextTokensUsed > 0 ? data.contextTokensUsed : null,
+          archived: archivedHeader ?? !!data.isArchived,
           turns,
         };
         out.set(id, info);

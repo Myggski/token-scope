@@ -71,7 +71,7 @@ async function listRollouts(homes = codexHomes()) {
       if (known && known.rank <= rank) continue;
       try {
         const stat = await fs.promises.stat(full);
-        found.set(key, { file: full, mtime: stat.mtimeMs, size: stat.size, rank, home });
+        found.set(key, { file: full, mtime: stat.mtimeMs, size: stat.size, rank, home, archived });
       } catch {}
     }
   };
@@ -340,7 +340,7 @@ async function loadRollouts(homes = codexHomes(), options = {}) {
     }
     // Copies of the requests, since which ones are copied history depends on which parents are present.
     const r = hit.rollout;
-    rollouts.push({ ...r, mtime: f.mtime, home: f.home, events: r.events.map((e) => ({ ...e, tier: e.tier ?? tierOf(f.home), replayed: false })) });
+    rollouts.push({ ...r, mtime: f.mtime, home: f.home, archived: !!f.archived, events: r.events.map((e) => ({ ...e, tier: e.tier ?? tierOf(f.home), replayed: false })) });
   }
   const byId = new Map(rollouts.filter((r) => r.sessionId).map((r) => [r.sessionId, r]));
   for (const r of rollouts) markReplayed(r, r.parentId && r.parentId !== r.sessionId ? byId.get(r.parentId) : null);
@@ -454,7 +454,7 @@ async function readCodex(models, since, { home = codexHomes(), checks = { mismat
     out.push({
       id: `codex:${r.sessionId || path.basename(r.file).replace(/\.jsonl(\.zst)?$/, "")}`,
       tool: "codex", title: names.get(r.sessionId) || r.title || "Untitled conversation",
-      project: r.cwd ? path.basename(r.cwd) : null, start: r.start, end, approximate: false,
+      project: r.cwd ? path.basename(r.cwd) : null, start: r.start, end, approximate: false, ...(r.archived ? { archived: true } : {}),
       jobIds: [...r.jobMarks.keys()], ...priced,
       insights: analyze({ ...timeline(r, models, defaultTier), cacheMinutes: 5, helperCost, total: priced.cost }),
     });

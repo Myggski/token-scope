@@ -321,7 +321,7 @@ async function loadOpenCode(folder, since, checks = NO_CHECKS) {
       for (const row of tableRows(db, table) || []) {
         const data = asJson(row.data) || {};
         const id = row.id || data.id;
-        if (id && !sessions.has(id)) sessions.set(id, { title: row.title || data.title || null, cwd: row.directory || data.directory || (data.path && data.path.cwd) || null });
+        if (id && !sessions.has(id)) sessions.set(id, { title: row.title || data.title || null, cwd: row.directory || data.directory || (data.path && data.path.cwd) || null, archived: !!(row.time_archived || (data.time && data.time.archived)) });
       }
     }
     db.close();
@@ -359,7 +359,7 @@ async function loadOpenCode(folder, since, checks = NO_CHECKS) {
   });
   walk(path.join(storage, "session"), 3, (file) => {
     const data = asJson(fs.readFileSync(file, "utf8"));
-    if (data && data.id && !sessions.has(data.id)) sessions.set(data.id, { title: data.title || null, cwd: data.directory || null });
+    if (data && data.id && !sessions.has(data.id)) sessions.set(data.id, { title: data.title || null, cwd: data.directory || null, archived: !!(data.time && data.time.archived) });
   });
   // Format checks: the message tables, and token counts on replies.
   if (databases.length && !knownTables && !jsonMessages) checks.mismatch("opencode", "Its database doesn't have the tables TokenScope reads, so OpenCode conversations are missing.");
@@ -428,7 +428,7 @@ async function readOpenCode(models, since, { folder, checks = NO_CHECKS } = {}) 
     });
     out.push({
       id: `opencode:${id}`, tool: "opencode", title: info.title || "Untitled conversation",
-      project: info.cwd || cwd ? path.basename(info.cwd || cwd) : null, start, end, approximate: false, jobIds: [...(jobsBySession.get(id) || [])], ...priced,
+      project: info.cwd || cwd ? path.basename(info.cwd || cwd) : null, start, end, approximate: false, ...(info.archived ? { archived: true } : {}), jobIds: [...(jobsBySession.get(id) || [])], ...priced,
       insights: analyze({ requests, tools: [], cacheMinutes: 5, total: priced.cost }),
     });
   }
@@ -859,7 +859,7 @@ function readCursor(models, since, { folder, checks = NO_CHECKS, cacheHit = CURS
     out.push({
       id: `cursor:${id}`, tool: "cursor", title: (info.get(id) || {}).name || (records.find((r) => r.title) || {}).title || "Cursor conversation",
       project: (records.find((r) => r.project) || {}).project || null,
-      start: records[0].t, end, approximate: true, jobIds, ...priced,
+      start: records[0].t, end, approximate: true, ...((info.get(id) || {}).archived ? { archived: true } : {}), jobIds, ...priced,
       insights: analyze({ requests, tools, cacheMinutes: 5, helperCost, total: priced.cost }),
     });
   }

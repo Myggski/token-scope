@@ -167,6 +167,17 @@ fs.mkdirSync(path.join(home, "archived_sessions"), { recursive: true });
   // Only conversations since the given time.
   assert.deepStrictEqual((await readCodex(models, Date.parse(at(45)), { home })).map((c) => c.id), ["codex:packed-1"]);
 
+  // A conversation only in archived_sessions is marked archived; one also in sessions/ isn't.
+  const old = log();
+  old.add(60, "session_meta", { id: "old-1", timestamp: at(60), cwd: "/work/web" });
+  old.add(60, "turn_context", { model: "gpt-5.5" });
+  old.tokens(61, 1000, 0, 0);
+  fs.writeFileSync(path.join(home, "archived_sessions", "rollout-2026-10-10T10-00-00-old-1.jsonl"), old.text());
+  const withOld = await readCodex(models, 0, { home, zstd: { forceJs: true } });
+  assert.strictEqual(withOld.find((c) => c.id === "codex:old-1").archived, true, "archived in Codex");
+  assert.ok(!withOld.find((c) => c.id === "codex:parent-1").archived);
+  fs.rmSync(path.join(home, "archived_sessions", "rollout-2026-10-10T10-00-00-old-1.jsonl"));
+
   // ---------- Real job costs ----------
   const job = { id: "job-aaaaaaaa11", createdAt: at(0), endedAt: at(10), plan: null, estimates: {} };
   const changes = await findCodexActuals([job], models, { home, now: T + 3600e3 });

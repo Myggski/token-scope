@@ -30,7 +30,7 @@ const T = Date.UTC(2026, 9, 1, 10, 0);
   db.run("INSERT INTO message VALUES (?, ?, ?)", ["u1", "s1", JSON.stringify({ id: "u1", sessionID: "s1", role: "user" })]);
   db.run("CREATE TABLE session_v2 (id TEXT, data TEXT)");
   db.run("CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, data TEXT)");
-  db.run("INSERT INTO session_v2 VALUES ('s2', ?)", [JSON.stringify({ id: "s2", title: "New editor panel", directory: "/work/editor" })]);
+  db.run("INSERT INTO session_v2 VALUES ('s2', ?)", [JSON.stringify({ id: "s2", title: "New editor panel", directory: "/work/editor", time: { archived: T } })]);
   db.run("INSERT INTO session_message VALUES ('m1', 's1', 'assistant', 1, ?)", [msg("m1", "s1", "claude-sonnet-5-5", tok(1e6, 1e5, 0, 0), T)]); // 2.x copy of m1
   db.run("INSERT INTO session_message VALUES ('m2', 's2', 'assistant', 1, ?)", [JSON.stringify({ id: "m2", sessionID: "s2", role: "assistant", model: { id: "gpt-5.6", providerID: "openai" }, tokens: tok(0, 1e6, 1e6, 0, 1e6), time: { created: T + 60e3 } })]);
   fs.writeFileSync(path.join(oc, "opencode.db"), Buffer.from(db.export()));
@@ -44,6 +44,7 @@ const T = Date.UTC(2026, 9, 1, 10, 0);
   assert.strictEqual(oconv.length, 2, "two conversations");
   assert.strictEqual(s1.title, "Fix the loot table");
   assert.strictEqual(s1.project, "game");
+  assert.ok(s2.archived && !s1.archived, "archived in OpenCode");
   assert.strictEqual(Number(s1.cost.toFixed(4)), 3 + 2.7 + 0.42, "each message counted once; OpenCode's own cost for unpriced models");
   assert.strictEqual(Number(s2.cost.toFixed(4)), 16.1, "reasoning priced as output");
   assert.deepStrictEqual(checks.list(), [], "no warnings for the expected format");
