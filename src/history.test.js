@@ -163,3 +163,30 @@ const T = Date.UTC(2026, 9, 1, 10, 0);
   assert.deepStrictEqual([...messages.keys()].sort(), ["orig", "own", "same-session-twice"], "the fork keeps only its own reply; the original keeps everything");
   console.log("fork copy tests passed");
 }
+
+// Claude Code: a resumed or forked session can start with a copy of the earlier one's replies (same
+// message ids). They count once, in the session that started first; the copy shows only its own part.
+(async () => {
+  const { readClaudeCode } = require("./history");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ts-cc-fork-"));
+  fs.mkdirSync(path.join(dir, "game"));
+  const at = (min) => new Date(Date.UTC(2026, 9, 19, 9, 0) + min * 60e3).toISOString();
+  const reply = (id, min, input, output) => JSON.stringify({ type: "assistant", timestamp: at(min), sessionId: "x", cwd: "/work/game", message: { id, model: "claude-sonnet-5-5", usage: { input_tokens: input, output_tokens: output } } });
+  const user = (min) => JSON.stringify({ type: "user", timestamp: at(min), message: { content: "go" } });
+  const write = (name, lines, session) => fs.writeFileSync(path.join(dir, "game", name), lines.map((l) => l.replace('"sessionId":"x"', `"sessionId":"${session}"`)).join("\n") + "\n");
+  // The copy's file name sorts first ("0-…"), and it's written a moment after the original.
+  write("a.jsonl", [user(0), reply("msg_1", 1, 1e6, 1e5), user(2), reply("msg_2", 3, 1e6, 1e5)], "a");
+  await new Promise((r) => setTimeout(r, 50));
+  write("0-b.jsonl", [user(0), reply("msg_1", 1, 1e6, 1e5), user(2), reply("msg_2", 3, 1e6, 1e5), user(60), reply("msg_3", 61, 2e5, 1e4)], "b");
+  const models = [{ id: "anthropic/claude-sonnet-5.5", inPerM: 2, outPerM: 10, cachedPerM: 0.2, cacheWritePerM: 2.5 }];
+  const list = await readClaudeCode(models, 0, { folder: dir });
+  const a = list.find((c) => c.id === "claude-code:a"), b = list.find((c) => c.id === "claude-code:b");
+  assert.ok(Math.abs(a.cost - 2 * (2 + 1)) < 1e-9, "the original keeps its cost");
+  assert.ok(Math.abs(b.cost - (0.4 + 0.1)) < 1e-9, "the resumed one counts only its own reply");
+  assert.strictEqual(b.start, Date.parse(at(61)), "and starts at its own first reply");
+  // Only a copy, nothing new yet: not shown.
+  write("c.jsonl", [user(0), reply("msg_1", 1, 1e6, 1e5)], "c");
+  assert.ok(!(await readClaudeCode(models, 0, { folder: dir })).some((c) => c.id === "claude-code:c"));
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log("claude code fork tests passed");
+})().catch((e) => { console.error(e); process.exit(1); });

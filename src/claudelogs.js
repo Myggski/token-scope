@@ -42,7 +42,7 @@ async function listLogs(folder, since, depth = 0, found = []) {
     else if (entry.name.endsWith(".jsonl")) {
       try {
         const stat = await fs.promises.stat(full);
-        if (stat.mtimeMs >= since) found.push({ file: full, mtime: stat.mtimeMs });
+        if (stat.mtimeMs >= since) found.push({ file: full, mtime: stat.mtimeMs, born: stat.birthtimeMs || stat.mtimeMs });
       } catch {}
     }
   }
@@ -86,8 +86,9 @@ function parseLines(text) {
 }
 
 // Adds up model replies in [start, end), each reply once (one reply spans several log lines).
-function sumUsage(lineSets, start, end) {
-  const seen = new Set();
+// skip: reply ids not to count here (copies of replies another session counts).
+function sumUsage(lineSets, start, end, skip = null) {
+  const seen = new Set(skip || []);
   const byModel = new Map();
   let last = 0;
   for (const lines of lineSets) {

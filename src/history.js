@@ -52,8 +52,8 @@ function resultTokens(content) {
 }
 
 // The conversation as a timeline of requests, pauses and tool runs (main conversation only).
-function claudeTimeline(lines, models) {
-  const requests = [], tools = [], pending = new Map(), seen = new Set();
+function claudeTimeline(lines, models, skip = new Set()) {
+  const requests = [], tools = [], pending = new Map(), seen = new Set(skip);
   let lastHuman = 0, cacheMinutes = 5;
   const toolKind = (name, input) => {
     if (/^(Edit|MultiEdit|Write|NotebookEdit)$/.test(name)) return "edit";
@@ -117,65 +117,106 @@ function claudeTimeline(lines, models) {
 
 const claudeCache = new Map(); // file -> { key, summary, assistants, withUsage }, in memory only
 
+// Reply ids in a session (main and helpers), for spotting copies across sessions: a resumed or
+// forked Claude Code session can start with a copy of an earlier one's replies, same ids included.
+const claudeReplyIds = (lineSets) => {
+  const ids = new Set();
+  for (const lines of lineSets) for (const { entry } of lines) {
+    if (entry.type === "assistant" && entry.message && entry.message.usage && entry.message.model !== "<synthetic>") ids.add(entry.message.id || entry.requestId || entry.uuid);
+  }
+  return ids;
+};
+
 async function readClaudeCode(models, since, { folder, checks = NO_CHECKS } = {}) {
   const logs = await listAllLogs(folder ? [folder] : logsFolders(), since);
-  const out = [];
   let assistants = 0, withUsage = 0;
+  // First every session's reply ids and start (cached per file), so a copied reply counts only in
+  // the session it first appeared in, the one that started first.
+  const sessions = [];
   for (const log of logs) {
     if (log.file.includes(`${path.sep}subagents${path.sep}`)) continue;
     const sessionFolder = log.file.replace(/\.jsonl$/, "") + path.sep;
     const helpers = logs.filter((l) => l.file.startsWith(sessionFolder));
     const key = [log.mtime, ...helpers.map((h) => h.mtime)].join(",") + `|${models.length}`;
-    const hit = claudeCache.get(log.file);
-    if (hit && hit.key === key) {
-      assistants += hit.assistants;
-      withUsage += hit.withUsage;
-      if (hit.summary) out.push(hit.summary);
-      continue;
+    const read = async () => {
+      const lines = parseLines(await fs.promises.readFile(log.file, "utf8").catch(() => ""));
+      const helperLines = [];
+      for (const h of helpers) helperLines.push(parseLines(await fs.promises.readFile(h.file, "utf8").catch(() => "")));
+      return { lines, helperLines };
+    };
+    let hit = claudeCache.get(log.file);
+    if (!hit || hit.key !== key) {
+      const { lines, helperLines } = await read();
+      // Format check: recent replies should carry token counts. Only the last ones count: a resumed
+      // or copied conversation can start with older replies that never had them.
+      const replies = lines.filter((l) => l.entry.type === "assistant").slice(-30);
+      const counted = replies.filter((l) => l.entry.message && l.entry.message.usage && typeof l.entry.message.usage.output_tokens === "number").length;
+      const firstT = lines.map((l) => Date.parse(l.entry.timestamp)).find(Number.isFinite);
+      // Kept: the reply ids and the summary, not the log itself (they can be large and the app runs for hours).
+      hit = { key, ids: claudeReplyIds([lines, ...helperLines]), first: firstT ?? Infinity, summary: summarizeClaude(log, lines, helperLines, models, new Set()), assistants: replies.length, withUsage: counted };
+      claudeCache.set(log.file, hit);
     }
-    const lines = parseLines(await fs.promises.readFile(log.file, "utf8").catch(() => ""));
-    const helperLines = [];
-    for (const h of helpers) helperLines.push(parseLines(await fs.promises.readFile(h.file, "utf8").catch(() => "")));
-    // Format check: recent replies should carry token counts. Only the last ones count: a resumed
-    // or copied conversation can start with older replies that never had them.
-    const replies = lines.filter((l) => l.entry.type === "assistant").slice(-30);
-    const counted = replies.filter((l) => l.entry.message && l.entry.message.usage && typeof l.entry.message.usage.output_tokens === "number").length;
-    assistants += replies.length;
-    withUsage += counted;
-
-    const { byModel } = sumUsage([lines, ...helperLines], -Infinity, Infinity);
-    let title = null, cwd = null, start = null, end = null, sessionId = null;
-    const jobIds = new Set();
-    for (const { entry, raw } of lines) {
-      if (entry.type === "ai-title" && entry.aiTitle) title = entry.aiTitle;
-      if (!cwd && entry.cwd) cwd = entry.cwd;
-      if (!sessionId && entry.sessionId) sessionId = entry.sessionId;
-      if (entry.timestamp) {
-        const t = Date.parse(entry.timestamp);
-        if (start === null || t < start) start = t;
-        if (end === null || t > end) end = t;
-      }
-      if (raw.includes("job_id")) (raw.match(/job-[a-z0-9]{8,}/g) || []).forEach((id) => jobIds.add(id));
+    assistants += hit.assistants;
+    withUsage += hit.withUsage;
+    sessions.push({ log, hit, read });
+  }
+  const owner = new Map(); // reply id -> the session that counts it
+  // A copy carries the original's times, so a tie goes to the file created first (a resumed or forked one is made later).
+  for (const x of [...sessions].sort((a, b) => a.hit.first - b.hit.first || a.log.born - b.log.born)) for (const id of x.hit.ids) if (!owner.has(id)) owner.set(id, x);
+  const out = [];
+  for (const x of sessions) {
+    const copied = new Set([...x.hit.ids].filter((id) => owner.get(id) !== x));
+    if (!copied.size) {
+      if (x.hit.summary) out.push(x.hit.summary);
+    } else {
+      // Rare (a resumed or forked session): read again and leave the copies out. Not cached, as it depends on other sessions.
+      const { lines, helperLines } = await x.read();
+      const summary = summarizeClaude(x.log, lines, helperLines, models, copied);
+      if (summary) out.push(summary);
     }
-    const priced = summarize(byModel, models);
-    let helperCost = 0;
-    for (const [name, u] of sumUsage(helperLines, -Infinity, Infinity).byModel) {
-      const p = findPricedModel(models, name);
-      if (p) helperCost += usageCost(p, u);
-    }
-    const summary = priced.models.length && start !== null ? {
-      id: `claude-code:${sessionId || path.basename(log.file, ".jsonl")}`,
-      tool: "claude-code", title: title || "Untitled conversation", project: cwd ? path.basename(cwd) : null,
-      start, end, approximate: false, jobIds: [...jobIds], ...priced,
-      insights: analyze({ ...claudeTimeline(lines, models), helperCost, total: priced.cost }),
-    } : null;
-    claudeCache.set(log.file, { key, summary, assistants: replies.length, withUsage: counted });
-    if (summary) out.push(summary);
   }
   if (assistants >= 10 && withUsage / assistants < 0.5) {
     checks.mismatch("claude-code", "Its logs no longer have token counts where expected, so Claude Code costs are missing or too low.");
   }
   return out;
+}
+
+// One Claude Code conversation. skip: reply ids counted in another session (a copy there).
+function summarizeClaude(log, lines, helperLines, models, skip) {
+  const { byModel } = sumUsage([lines, ...helperLines], -Infinity, Infinity, skip);
+  let title = null, cwd = null, start = null, end = null, sessionId = null;
+  const jobIds = new Set();
+  for (const { entry, raw } of lines) {
+    if (entry.type === "ai-title" && entry.aiTitle) title = entry.aiTitle;
+    if (!cwd && entry.cwd) cwd = entry.cwd;
+    if (!sessionId && entry.sessionId) sessionId = entry.sessionId;
+    // A copied reply (and the copied history around it) has the original's time; it doesn't start this one.
+    const copy = entry.type === "assistant" && entry.message && skip.has(entry.message.id || entry.requestId || entry.uuid);
+    if (entry.timestamp && !copy) {
+      const t = Date.parse(entry.timestamp);
+      if (start === null || t < start) start = t;
+      if (end === null || t > end) end = t;
+    }
+    if (raw.includes("job_id")) (raw.match(/job-[a-z0-9]{8,}/g) || []).forEach((id) => jobIds.add(id));
+  }
+  if (skip.size) {
+    // Its own part starts at its first own reply, not at the copied history before it.
+    const own = lines.filter((l) => l.entry.type === "assistant" && l.entry.message && l.entry.message.usage && !skip.has(l.entry.message.id || l.entry.requestId || l.entry.uuid)).map((l) => Date.parse(l.entry.timestamp)).filter(Number.isFinite);
+    if (!own.length) return null; // only a copy: nothing of its own was paid for
+    start = Math.min(...own);
+  }
+  const priced = summarize(byModel, models);
+  let helperCost = 0;
+  for (const [name, u] of sumUsage(helperLines, -Infinity, Infinity, skip).byModel) {
+    const p = findPricedModel(models, name);
+    if (p) helperCost += usageCost(p, u);
+  }
+  return priced.models.length && start !== null ? {
+    id: `claude-code:${sessionId || path.basename(log.file, ".jsonl")}`,
+    tool: "claude-code", title: title || "Untitled conversation", project: cwd ? path.basename(cwd) : null,
+    start, end, approximate: false, jobIds: [...jobIds], ...priced,
+    insights: analyze({ ...claudeTimeline(lines, models, skip), helperCost, total: priced.cost }),
+  } : null;
 }
 
 // ---------- Codex ----------
