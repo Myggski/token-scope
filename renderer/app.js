@@ -835,10 +835,11 @@ function conversationPanel(c) {
     const open = state.openSubagents.has(c.id);
     const listId = `subs-${c.id.replace(/[^a-z0-9-]/gi, "_")}`;
     subagents = `
-      <div class="panel-block">
-        <button class="toggle-button" type="button" data-toggle-subagents="${escape(c.id)}" aria-expanded="${open}" aria-controls="${listId}"><span class="chevron" aria-hidden="true"></span>Subagents <span class="muted">· ${c.helpers.length} · ${costText(total, c.approximate)}</span></button>
-        ${open ? `<div id="${listId}">
-        <p class="panel-note">Included in this conversation's cost. Most expensive first.</p>
+      <div class="panel-block expander${open ? " is-open" : ""}">
+        <button class="expander-head" type="button" data-toggle-subagents="${escape(c.id)}" aria-expanded="${open}" aria-controls="${listId}">
+          <span class="chevron" aria-hidden="true"></span><span class="expander-title">Subagents</span><span class="muted">${c.helpers.length} · included in the cost above</span><span class="expander-value">${costText(total, c.approximate)}</span>
+        </button>
+        ${open ? `<div class="expander-body" id="${listId}">
         <ul class="model-rows subagent-rows">${rows.slice(0, shown).map((g) => `
           <li><span class="model-label">${escape(g.title)}${g.runs > 1 ? ` <span class="muted">×${g.runs}</span>` : ""}</span><span class="num">${costText(g.cost, c.approximate)}</span></li>`).join("")}
         </ul>
