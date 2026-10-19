@@ -376,6 +376,6 @@ table.mini tr:last-child td { border-bottom: 0; }
 .expander-head .muted { flex: 1; }
 .expander-value { font-weight: 500; }
 .expander.is-open .expander-head .chevron { transform: rotate(45deg); }
-.expander-body { padding: 0 16px 12px 16px; border-top: 1px solid var(--line); }
+.expander-body { padding: 0 16px 16px 16px; border-top: 1px solid var(--line); }
 .expander-body .model-rows.subagent-rows li { padding-right: 0; }
-.expander-body .list-footer { margin-top: 8px; }
+.expander-body .list-footer { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
