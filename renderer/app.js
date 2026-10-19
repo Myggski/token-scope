@@ -843,7 +843,7 @@ function conversationPanel(c) {
         <ul class="model-rows subagent-rows">${rows.slice(0, shown).map((g) => `
           <li><span class="model-label">${escape(g.title)}${g.runs > 1 ? ` <span class="muted">×${g.runs}</span>` : ""}</span><span class="num">${costText(g.cost, c.approximate)}</span></li>`).join("")}
         </ul>
-        ${more > 0 ? `<button class="button ghost" type="button" data-more-subagents="${escape(c.id)}">Show ${more} more</button>` : ""}
+        ${more > 0 ? `<div class="list-footer"><p class="count">Showing ${shown} of ${rows.length}.</p><button class="button ghost" type="button" data-more-subagents="${escape(c.id)}">Show ${more} more</button></div>` : ""}
         </div>` : ""}
       </div>`;
   }
