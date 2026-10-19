@@ -920,7 +920,7 @@ function conversationRow(c) {
   return `
     <tr class="job-row${open ? " is-open" : ""}">
       <td class="wrap-text">
-        <button class="row-toggle" type="button" data-toggle-conv="${escape(c.id)}" aria-expanded="${open}" aria-controls="${panelId}"><span class="chevron" aria-hidden="true"></span><span class="model-name">${marked(c.title)}</span></button><span class="badge">${escape(TOOL_NAMES[c.tool] || c.tool)}</span>${c.archived ? `<span class="badge" title="Archived in ${escape(TOOL_NAMES[c.tool] || c.tool)}. Its cost still counts.">Archived</span>` : ""}
+        <button class="row-toggle" type="button" data-toggle-conv="${escape(c.id)}" aria-expanded="${open}" aria-controls="${panelId}"><span class="chevron" aria-hidden="true"></span><span class="model-name">${marked(c.title)}</span></button><span class="badge">${marked(TOOL_NAMES[c.tool] || c.tool)}</span>${c.archived ? `<span class="badge" title="Archived in ${escape(TOOL_NAMES[c.tool] || c.tool)}. Its cost still counts.">${marked("Archived")}</span>` : ""}
         <span class="provider row-meta">${marked(meta)}</span>
       </td>
       <td class="num">${costText(c.cost, c.approximate)}${costNotes(c)}</td>

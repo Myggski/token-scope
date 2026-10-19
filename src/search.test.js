@@ -30,4 +30,11 @@ assert.deepStrictEqual(exactFirst.map((h) => h.index), [1, 0], "exact matches be
 assert.ok(oneEdit("journal", "jornal") && oneEdit("save", "svae") && !oneEdit("save", "vase"));
 assert.deepStrictEqual(highlights("Fix quest journal bugs", "journal quest"), [[4, 9], [10, 17]]);
 assert.deepStrictEqual(highlights("Café menu", "cafe"), [[0, 4]], "positions in the text as written, accents included");
+{
+  const quest = [{ title: "Quest journal component bugs", details: "hydra · Cursor · archived" }];
+  for (const q of ["Quest Journal", "Journal Quest", "jouirnal quest", "Cursor", "archived quest"]) assert.strictEqual(searchConversations(quest, q).length, 1, q);
+  assert.deepStrictEqual(highlights("Quest journal component bugs", "Journal Quest"), [[0, 5], [6, 13]], "any word order");
+  assert.deepStrictEqual(highlights("Quest journal component bugs", "jouirnal quest"), [[0, 5], [6, 13]], "the word a typo was forgiven for is marked");
+  assert.deepStrictEqual(highlights("Cursor", "cursor"), [[0, 6]], "tags are marked too");
+}
 console.log("search tests passed");

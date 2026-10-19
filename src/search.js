@@ -71,11 +71,28 @@
     }
     origin.push(source.length);
     const ranges = [];
+    const textWords = [...folded.matchAll(/[a-z0-9.$#@+-]+/g)].map((m) => ({ word: m[0], at: m.index }));
+    const mark = (at, length) => ranges.push([origin[at], origin[at + length - 1] + 1]);
     for (const term of words(query)) {
-      let from = 0, at;
+      let from = 0, at, found = false;
       while (term && (at = folded.indexOf(term, from)) !== -1) {
-        ranges.push([origin[at], origin[at + term.length - 1] + 1]);
+        mark(at, term.length);
+        found = true;
         from = at + term.length;
+      }
+      // A typo ("jornal"): mark the word it was forgiven for, like the search matched it.
+      if (!found && term.length >= 5) {
+        for (const { word, at: w } of textWords) {
+          if (oneEdit(term, word)) mark(w, word.length);
+          else if (word.length > term.length) {
+            for (const n of [term.length - 1, term.length, term.length + 1]) {
+              if (n <= word.length && oneEdit(term, word.slice(0, n))) {
+                mark(w, n);
+                break;
+              }
+            }
+          }
+        }
       }
     }
     ranges.sort((a, b) => a[0] - b[0]);
