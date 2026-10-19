@@ -40,6 +40,7 @@ const state = {
   historyLayout: { tools: false, makers: false }, // which Spending filter rows the last load had (space kept while loading)
   openConversations: new Set(),
   subagentsShown: new Map(), // conversation id -> how many subagent rows its Details show
+  openSubagents: new Set(), // conversations whose subagent list is open
   warnings: { prices: [], history: [] }, // data format warnings, shown at the top
 };
 
@@ -830,14 +831,19 @@ function conversationPanel(c) {
     const shown = Math.min(rows.length, state.subagentsShown.get(c.id) || PAGE_SMALL);
     const total = c.helpers.reduce((sum, h) => sum + h.cost, 0);
     const more = Math.min(PAGE_SMALL, rows.length - shown);
+    // Closed by default, like Details: one line with the count and total, the list on a click.
+    const open = state.openSubagents.has(c.id);
+    const listId = `subs-${c.id.replace(/[^a-z0-9-]/gi, "_")}`;
     subagents = `
       <div class="panel-block">
-        <h4>Subagents it started</h4>
-        <p class="panel-note">${c.helpers.length} subagent${c.helpers.length === 1 ? "" : "s"} · ${costText(total, c.approximate)} in all, included in this conversation's cost.</p>
+        <button class="toggle-button" type="button" data-toggle-subagents="${escape(c.id)}" aria-expanded="${open}" aria-controls="${listId}"><span class="chevron" aria-hidden="true"></span>Subagents <span class="muted">· ${c.helpers.length} · ${costText(total, c.approximate)}</span></button>
+        ${open ? `<div id="${listId}">
+        <p class="panel-note">Included in this conversation's cost. Most expensive first.</p>
         <ul class="model-rows subagent-rows">${rows.slice(0, shown).map((g) => `
           <li><span class="model-label">${escape(g.title)}${g.runs > 1 ? ` <span class="muted">×${g.runs}</span>` : ""}</span><span class="num">${costText(g.cost, c.approximate)}</span></li>`).join("")}
         </ul>
         ${more > 0 ? `<button class="button ghost" type="button" data-more-subagents="${escape(c.id)}">Show ${more} more</button>` : ""}
+        </div>` : ""}
       </div>`;
   }
   return `
@@ -1209,6 +1215,16 @@ $("historyRows").addEventListener("submit", (event) => {
 $("historyRows").addEventListener("click", (event) => {
   const drop = event.target.closest("[data-compare-remove]");
   if (drop) return setCompareModels((state.compareModels || [...state.favorites]).filter((id) => id !== drop.dataset.compareRemove));
+  const subToggle = event.target.closest("[data-toggle-subagents]");
+  if (subToggle) {
+    const id = subToggle.dataset.toggleSubagents;
+    if (state.openSubagents.has(id)) state.openSubagents.delete(id);
+    else state.openSubagents.add(id);
+    renderHistory();
+    const again = [...document.querySelectorAll("[data-toggle-subagents]")].find((b) => b.dataset.toggleSubagents === id);
+    if (again) again.focus();
+    return;
+  }
   const moreSubagents = event.target.closest("[data-more-subagents]");
   if (moreSubagents) {
     const id = moreSubagents.dataset.moreSubagents;
