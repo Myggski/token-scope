@@ -43,32 +43,60 @@ const time = (text) => {
   return Number.isFinite(t) ? t : null;
 };
 
+// Format checks: Zed's database is internal and can change in any Zed update. If it no longer looks
+// the way TokenScope expects, a warning is shown instead of missing or wrong costs (see checks.js).
+const NO_CHECKS = { mismatch() {} };
+const COLUMNS = ["id", "updated_at", "data_type", "data"];
+
 // Every thread with its token totals. Threads Zed can't give totals for are left out.
-async function loadZedThreads(folder = zedFolder()) {
+async function loadZedThreads(folder = zedFolder(), checks = NO_CHECKS) {
   const file = zedDatabase(folder);
   if (!fs.existsSync(file)) return [];
   const SQLite = await sqlJs();
-  const db = new SQLite.Database(fs.readFileSync(file)); // a copy in memory; Zed keeps writing to its own
-  const threads = [];
+  let db;
   try {
-    const result = db.exec("SELECT * FROM threads");
+    db = new SQLite.Database(fs.readFileSync(file)); // a copy in memory; Zed keeps writing to its own
+  } catch {
+    checks.mismatch("zed", "Its conversation database couldn't be opened, so Zed conversations are missing.");
+    return [];
+  }
+  const threads = [];
+  let unreadable = 0, withoutUsage = 0, rows = 0;
+  try {
+    // No tables at all: Zed's agent hasn't saved anything yet. Fine, not a changed format.
+    const tables = db.exec("SELECT name FROM sqlite_master WHERE type = 'table'");
+    if (!tables.length || !tables[0].values.length) return [];
+    let result;
+    try {
+      result = db.exec("SELECT * FROM threads");
+    } catch {
+      checks.mismatch("zed", "Its conversation database no longer has the table TokenScope reads, so Zed conversations are missing.");
+      return [];
+    }
+    // The columns, from the table itself (an empty table returns no rows to read them from).
+    const info = db.exec("PRAGMA table_info(threads)");
+    const names = info.length ? info[0].values.map((v) => v[1]) : [];
+    if (!COLUMNS.every((c) => names.includes(c))) {
+      checks.mismatch("zed", "Its conversations are stored differently now, so Zed conversations are missing.");
+      return [];
+    }
     if (!result.length) return [];
     const { columns, values } = result[0];
     for (const v of values) {
+      rows++;
       const row = Object.fromEntries(columns.map((c, i) => [c, v[i]]));
-      let raw;
+      let raw, data;
       try {
         const bytes = Buffer.from(row.data || []);
         raw = (row.data_type === "zstd" ? unzstd(bytes) : bytes).toString("utf8");
-      } catch {
-        continue; // unreadable: skipped, like a record a tool is still writing
-      }
-      let data;
-      try {
         data = JSON.parse(raw);
       } catch {
+        unreadable++; // skipped; many of these means the format changed
         continue;
       }
+      // A thread with replies but no token counts in either known place.
+      const replies = Array.isArray(data.messages) && data.messages.length > 1;
+      if (replies && !data.cumulative_token_usage && !data.request_token_usage) withoutUsage++;
       // Newer threads keep a running total; older ones a list per request.
       let usage = data.cumulative_token_usage;
       if (!usage && Array.isArray(data.request_token_usage)) {
@@ -103,6 +131,8 @@ async function loadZedThreads(folder = zedFolder()) {
   } finally {
     db.close();
   }
+  if (rows >= 3 && unreadable / rows > 0.5) checks.mismatch("zed", "Most of its conversations couldn't be read, so Zed conversations are missing.");
+  else if (rows >= 3 && withoutUsage / rows > 0.5) checks.mismatch("zed", "Its conversations no longer have token counts where expected, so Zed costs are missing or too low.");
   return threads.filter((t) => t.end && t.tokens.input + t.tokens.output + t.tokens.read + t.tokens.write > 0);
 }
 

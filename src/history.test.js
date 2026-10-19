@@ -161,6 +161,16 @@ const T = Date.UTC(2026, 9, 1, 10, 0);
   ]);
   dropForkCopies(messages, new Map([["main", { created: 900 }], ["fork", { created: 4000 }]]));
   assert.deepStrictEqual([...messages.keys()].sort(), ["orig", "own", "same-session-twice"], "the fork keeps only its own reply; the original keeps everything");
+  // Newer OpenCode marks the fork: its copies count once even when their times were changed.
+  const marked = new Map([
+    ["o1", { id: "o1", session: "main", model: "m", time: 1000, tokens: tok }],
+    ["o2", { id: "o2", session: "main", model: "m", time: 2000, tokens: { ...tok, output: 20 } }],
+    ["k1", { id: "k1", session: "fork", model: "m", time: 9000, tokens: tok }],
+    ["k2", { id: "k2", session: "fork", model: "m", time: 9001, tokens: { ...tok, output: 20 } }],
+    ["k3", { id: "k3", session: "fork", model: "m", time: 9500, tokens: tok }], // its own, same size as o1 by chance
+  ]);
+  dropForkCopies(marked, new Map([["main", { created: 900 }], ["fork", { created: 8000, forkOf: "main" }]]));
+  assert.deepStrictEqual([...marked.keys()].sort(), ["k3", "o1", "o2"], "each original reply matches one copy; the fork's own reply stays");
   console.log("fork copy tests passed");
 }
 

@@ -363,7 +363,7 @@ async function loadOpenCode(folder, since, checks = NO_CHECKS) {
       for (const row of tableRows(db, table) || []) {
         const data = asJson(row.data) || {};
         const id = row.id || data.id;
-        if (id && !sessions.has(id)) sessions.set(id, { title: row.title || data.title || null, cwd: row.directory || data.directory || (data.path && data.path.cwd) || null, archived: !!(row.time_archived || (data.time && data.time.archived)), parent: row.parent_id || row.parentID || data.parentID || data.parent_id || null, created: row.time_created || (data.time && data.time.created) || null });
+        if (id && !sessions.has(id)) sessions.set(id, { title: row.title || data.title || null, cwd: row.directory || data.directory || (data.path && data.path.cwd) || null, archived: !!(row.time_archived || (data.time && data.time.archived)), parent: row.parent_id || row.parentID || data.parentID || data.parent_id || null, created: row.time_created || (data.time && data.time.created) || null, forkOf: row.fork_session_id || (data.fork && data.fork.sessionID) || null });
       }
     }
     db.close();
@@ -438,6 +438,27 @@ function dropForkCopies(messages, sessions = new Map()) {
   }
   const created = (id) => Number((sessions.get(id) || {}).created) || firstReply.get(id);
   const order = (a, b) => created(a) - created(b) || firstReply.get(a) - firstReply.get(b) || lastReply.get(a) - lastReply.get(b);
+  // Sure: a session OpenCode marks as a fork of another (newer OpenCode). Its replies that match one
+  // of the original's by model and token counts are copies, whatever their times say. Each original
+  // reply matches one copy at most.
+  const sig = (m) => `${m.model}|${m.tokens.input}|${m.tokens.output}|${m.tokens.read}|${m.tokens.write}`;
+  const bySession = new Map();
+  for (const m of messages.values()) {
+    if (!bySession.has(m.session)) bySession.set(m.session, []);
+    bySession.get(m.session).push(m);
+  }
+  for (const [id, info] of sessions) {
+    if (!info || !info.forkOf || !bySession.has(id) || !bySession.has(info.forkOf)) continue;
+    const originals = new Map();
+    for (const m of bySession.get(info.forkOf)) originals.set(sig(m), (originals.get(sig(m)) || 0) + 1);
+    for (const m of [...bySession.get(id)].sort((a, b) => a.time - b.time)) {
+      const n = originals.get(sig(m));
+      if (!n) continue;
+      originals.set(sig(m), n - 1);
+      messages.delete(m.id);
+    }
+  }
+  // Otherwise: same time to the millisecond, model and token counts as a reply in another session.
   const firstSeen = new Map(); // signature -> the message kept
   const ordered = [...messages.values()].sort((a, b) => (a.session === b.session ? a.time - b.time : order(a.session, b.session)));
   for (const m of ordered) {
@@ -723,6 +744,20 @@ function cursorHelpers(byConversation) {
   return parentOf;
 }
 
+// Format check on Cursor's own database (see cursordb.js): when it's there but no longer has the
+// chats or sizes TokenScope expects, Cursor costs fall back to TokenScope's own estimate, and the
+// warning says so. Only with a few recent chats, so a deleted chat or two doesn't trigger it.
+function checkCursorChats(byConversation, info, checks) {
+  const recent = [...byConversation.entries()].filter(([, records]) => records[records.length - 1].t > Date.now() - 3 * DAY && records.some((r) => r.gen));
+  if (recent.length < 3) return;
+  const fallback = "Cursor costs use TokenScope's own, less exact estimate until TokenScope is updated.";
+  if (info.failed) return checks.mismatch("cursor", `Its chat database couldn't be read. ${fallback}`);
+  if (!info.opened) return; // no database, or no SQLite here: the estimate is the normal path
+  const found = recent.filter(([id]) => info.has(id));
+  if (!found.length) return checks.mismatch("cursor", `Its chat database no longer lists chats where expected. ${fallback}`);
+  if (!found.some(([id]) => info.get(id).end || info.get(id).turns.size)) checks.mismatch("cursor", `Its chat database no longer has chat sizes where expected. ${fallback}`);
+}
+
 // Format checks on the hook's records: Cursor sends the fields TokenScope expects.
 function checkCursorRecords(records, checks) {
   if (records.length < 10) return;
@@ -923,6 +958,7 @@ function readCursor(models, since, { folder, checks = NO_CHECKS, cacheHit = CURS
   }
   const parentOf = cursorHelpers(byConversation);
   const info = chats([...byConversation.keys()]);
+  checkCursorChats(byConversation, info, checks);
   const out = [];
   for (const [id, records] of byConversation) {
     if (parentOf.has(id)) continue; // a helper agent: counted with the conversation that started it
@@ -1113,9 +1149,9 @@ function zedCost(models, group) {
   return { priced: summarize(byModel, models), helperCost, helpers };
 }
 
-async function readZed(models, since, { folder } = {}) {
+async function readZed(models, since, { folder, checks = NO_CHECKS } = {}) {
   const out = [];
-  for (const group of zedGroups(await loadZedThreads(folder))) {
+  for (const group of zedGroups(await loadZedThreads(folder, checks))) {
     const all = [group.root, ...group.helpers];
     const end = Math.max(...all.map((t) => t.end));
     if (end < since) continue;

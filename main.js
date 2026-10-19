@@ -213,7 +213,7 @@ async function historyList(days = keepDays()) {
   await attempt("claude-code", () => readClaudeCode(currentModels, since, { checks }));
   await attempt("codex", () => readCodex(currentModels, since, { checks }));
   await attempt("opencode", () => readOpenCode(currentModels, since, { checks }));
-  await attempt("zed", () => readZed(currentModels, since));
+  await attempt("zed", () => readZed(currentModels, since, { checks }));
   await attempt("cursor", async () => readCursor(currentModels, since, { folder: cursorRecords(), checks }));
   // Saves summaries and adds the ones whose records the tool has deleted since (see archive.js).
   const tracked = new Set(Object.keys(on).filter((id) => on[id]));

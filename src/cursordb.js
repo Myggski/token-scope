@@ -57,6 +57,7 @@ function cursorChats(ids, { file = databaseFile() } = {}) {
   let db;
   try {
     db = new Database(file, { readOnly: true });
+    out.opened = true; // for the format check: the database was there and readable
     const header = db.prepare("SELECT * FROM composerHeaders WHERE composerId = ?");
     const chat = db.prepare("SELECT value FROM cursorDiskKV WHERE key = ?");
     const messages = db.prepare("SELECT value FROM cursorDiskKV WHERE key >= ? AND key < ?");
@@ -96,6 +97,7 @@ function cursorChats(ids, { file = databaseFile() } = {}) {
     // Locked, a newer format, or not a database: Cursor costs fall back to the estimate.
     if (!cursorChats.warned) console.error("Reading Cursor's chat list failed:", error.message);
     cursorChats.warned = true;
+    out.failed = error.message;
   } finally {
     try {
       if (db) db.close();

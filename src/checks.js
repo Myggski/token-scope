@@ -1,7 +1,7 @@
 // Notices when data from a source doesn't look the way TokenScope expects, usually because the
 // tool or service changed its format in an update. Readers report what they found; the app
 // shows a warning instead of silently showing missing or wrong numbers.
-const NAMES = { openrouter: "OpenRouter", "claude-code": "Claude Code", opencode: "OpenCode", cursor: "Cursor", codex: "Codex" };
+const NAMES = { openrouter: "OpenRouter", "claude-code": "Claude Code", opencode: "OpenCode", cursor: "Cursor", codex: "Codex", zed: "Zed" };
 
 function createChecks() {
   const problems = new Map(); // source -> message

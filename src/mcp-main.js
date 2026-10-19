@@ -139,7 +139,7 @@ startMcp({
     if (on["claude-code"]) await attempt(() => readClaudeCode(models, since, { checks }));
     if (on.codex) await attempt(() => readCodex(models, since, { checks }));
     if (on.opencode) await attempt(() => readOpenCode(models, since, { checks }));
-    if (on.zed) await attempt(() => readZed(models, since));
+    if (on.zed) await attempt(() => readZed(models, since, { checks }));
     if (on.cursor) await attempt(async () => readCursor(models, since, { folder: path.join(folder, "history", "cursor"), checks }));
     // Also saves summaries, and adds the ones whose records the tool has deleted (see archive.js).
     const kept = Number(store.read().settings.historyDays);

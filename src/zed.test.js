@@ -75,6 +75,31 @@ const iso = (min) => new Date(T + min * 60e3).toISOString();
   assert.deepStrictEqual(await findZedActuals([{ ...job, id: "job-elsewhere01" }], models, { folder, now: T + 3600e3 }), {}, "plans made elsewhere aren't touched");
   assert.deepStrictEqual(await readZed(models, 0, { folder: path.join(folder, "missing") }), [], "no Zed: nothing");
 
+  // Format checks: a changed database shows a warning instead of quietly missing costs.
+  const { createChecks } = require("./checks");
+  const warn = async (setup) => {
+    const f = fs.mkdtempSync(path.join(os.tmpdir(), "ts-zed-check-"));
+    fs.mkdirSync(path.join(f, "threads"));
+    const d = new SQL.Database();
+    setup(d);
+    fs.writeFileSync(path.join(f, "threads", "threads.db"), Buffer.from(d.export()));
+    const checks = createChecks();
+    await readZed(models, 0, { folder: f, checks });
+    fs.rmSync(f, { recursive: true, force: true });
+    return checks.list().map((c) => c.message).join(" ");
+  };
+  assert.strictEqual(await warn(() => {}), "", "an empty database (Zed not used yet) is fine");
+  assert.match(await warn((d) => d.run("CREATE TABLE conversations (id TEXT)")), /Zed data mismatch.*table/);
+  assert.match(await warn((d) => d.run("CREATE TABLE threads (id TEXT, payload BLOB)")), /stored differently/);
+  assert.match(await warn((d) => {
+    d.run("CREATE TABLE threads (id TEXT, summary TEXT, updated_at TEXT, data_type TEXT, data BLOB)");
+    for (const id of ["a", "b", "c"]) d.run("INSERT INTO threads VALUES (?, 'x', ?, 'zstd', ?)", [id, iso(0), Buffer.from("not zstd")]);
+  }), /couldn't be read/);
+  assert.match(await warn((d) => {
+    d.run("CREATE TABLE threads (id TEXT, summary TEXT, updated_at TEXT, data_type TEXT, data BLOB)");
+    for (const id of ["a", "b", "c"]) d.run("INSERT INTO threads VALUES (?, 'x', ?, 'json', ?)", [id, iso(0), Buffer.from(JSON.stringify({ messages: [1, 2, 3], tokens_used: 5 }))]);
+  }), /no longer have token counts/);
+
   fs.rmSync(folder, { recursive: true, force: true });
   console.log("zed tests passed");
 })().catch((e) => {

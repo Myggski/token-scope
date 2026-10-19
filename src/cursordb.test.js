@@ -67,5 +67,29 @@ assert.strictEqual(named.archived, true);
 assert.strictEqual(named.models[0].requests, 4, "three requests in turn 1 (the batch counts once), one in turn 2");
 assert.ok(named.cost > plain.cost * 1.5, "Cursor's real size makes the turn after it cost more");
 
+// Format check: Cursor's database is there, but no longer has sizes for recent chats. Costs fall
+// back to TokenScope's own estimate, and a warning says so.
+{
+  const { createChecks } = require("./checks");
+  const recentDir = path.join(dir, "recent");
+  fs.mkdirSync(recentDir);
+  const now = Date.now();
+  const lines = [];
+  for (const c of ["c1", "c2", "c3"]) lines.push(JSON.stringify({ t: now - 60e3, e: "afterAgentResponse", c, gen: `${c}-g`, model: "claude-sonnet-5-5", out: 400 }));
+  fs.writeFileSync(path.join(recentDir, new Date(now).toISOString().slice(0, 10) + ".jsonl"), lines.join("\n") + "\n");
+  const run = (info) => {
+    const checks = createChecks();
+    readCursor(models, 0, { folder: recentDir, checks, chats: () => info });
+    return checks.list().map((x) => x.message).join(" ");
+  };
+  const noSizes = Object.assign(new Map(["c1", "c2", "c3"].map((id) => [id, { name: "x", end: null, turns: new Map() }])), { opened: true });
+  assert.match(run(noSizes), /Cursor data mismatch.*no longer has chat sizes.*own, less exact estimate/);
+  assert.match(run(Object.assign(new Map(), { opened: true })), /no longer lists chats/);
+  assert.match(run(Object.assign(new Map(), { failed: "locked" })), /couldn't be read/);
+  assert.strictEqual(run(new Map()), "", "no database (or no SQLite): the estimate is the normal path, no warning");
+  const fine = Object.assign(new Map([["c1", { name: "x", end: 5000, turns: new Map() }]]), { opened: true });
+  assert.strictEqual(run(fine), "");
+}
+
 fs.rmSync(dir, { recursive: true });
 console.log("cursor database tests passed");
