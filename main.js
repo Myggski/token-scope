@@ -370,6 +370,13 @@ app.whenReady().then(() => {
   } catch (error) {
     console.error("Saving the version failed:", error.message);
   }
+  // The copy of the MCP program your AI tools run is refreshed from this version on every start (and
+  // after an update, which restarts TokenScope), so it's never older than the app or missing a file.
+  try {
+    mcpScript();
+  } catch (error) {
+    console.error("Refreshing the MCP program failed:", error.message);
+  }
   // A test build hid History before a date ("historyFrom"); that's gone, so History shows it all again.
   if (store.read().historyFrom) store.update((data) => { delete data.historyFrom; });
   startWindowApp();
