@@ -727,9 +727,13 @@ function modelWords(c) {
   return [...out];
 }
 
-// Totals for a few periods, from the conversations shown (after the search).
-// While searching, each tile shows what the matching conversations cost, and in its small text
-// what everything cost, so the overall total is never out of sight.
+// Totals for a few periods. While searching, each tile shows what the matches cost, with what
+// everything cost after it in grey brackets. Switching animates instead of jumping: the total slides
+// right to make room (or back), and the matches' amount counts to its new value.
+let tileShown = []; // the matches' amount on screen per tile (null: not searching)
+let tileFrame = null;
+const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 function historyTotals(list, all = list) {
   const now = Date.now();
   const today = new Date();
@@ -741,16 +745,92 @@ function historyTotals(list, all = list) {
     { label: "Last 30 days", since: now - 30 * 86400e3 },
   ];
   if (keep === 0 || keep > 30) periods.push({ label: keep === 0 ? "All time" : keep === 365 ? "Last year" : `Last ${keep} days`, since: keep === 0 ? 0 : now - keep * 86400e3 });
+  const searching = list !== all;
+  const sum = (cs) => ({ cost: cs.reduce((s, c) => s + c.cost, 0), approx: cs.some((c) => c.approximate) });
   return periods.map((p) => {
     const inside = list.filter((c) => c.end >= p.since);
-    const cost = inside.reduce((sum, c) => sum + c.cost, 0);
-    let hint = `${inside.length} conversation${inside.length === 1 ? "" : "s"}`;
-    if (list !== all) {
-      const every = all.filter((c) => c.end >= p.since);
-      hint = `${inside.length} of ${every.length} · ${costText(every.reduce((sum, c) => sum + c.cost, 0), every.some((c) => c.approximate))} in all`;
+    const every = sum(all.filter((c) => c.end >= p.since));
+    const total = `<span class="tile-total-cost">${costText(every.cost, every.approx)}</span>`;
+    let value = `<span class="tile-total">${total}</span>`;
+    if (searching) {
+      const match = sum(inside);
+      value = `<span class="tile-match" data-cost="${match.cost}" data-approx="${match.approx ? 1 : 0}">${costText(match.cost, match.approx)}</span> <span class="tile-total is-dim">(${total})</span>`;
     }
-    return `<div class="tile"><span class="tile-label">${escape(p.label)}</span><span class="tile-value">${costText(cost, inside.some((c) => c.approximate))}</span><span class="tile-hint">${hint}</span></div>`;
+    return `<div class="tile"><span class="tile-label">${escape(p.label)}</span><span class="tile-value">${value}</span><span class="tile-hint">${inside.length} conversation${inside.length === 1 ? "" : "s"}</span></div>`;
   }).join("");
+}
+
+// Slides each total from where it was (before: its amount's left edge per tile) to where it is now.
+// keepClear: never start left of where it is now, so it can't slide across the amount beside it.
+function slideTotals(totals, before, keepClear = false) {
+  totals.forEach((el, i) => {
+    let dx = before[i] - el.querySelector(".tile-total-cost").getBoundingClientRect().left;
+    if (keepClear) dx = Math.max(dx, 0);
+    if (Math.abs(dx) < 0.5) return;
+    el.style.transition = "none";
+    el.style.transform = `translateX(${dx}px)`;
+  });
+  $("historyTotals").getBoundingClientRect(); // apply the starting positions before animating from them
+  totals.forEach((el) => {
+    el.style.transition = "";
+    el.style.transform = "";
+  });
+}
+const totalLefts = () => [...$("historyTotals").querySelectorAll(".tile-total-cost")].map((el) => el.getBoundingClientRect().left);
+
+// Puts new tiles in place of the old ones, animating the change.
+function showTotals(html) {
+  const box = $("historyTotals");
+  const before = [...box.querySelectorAll(".tile-total")].map((el) => el.classList.contains("is-dim"));
+  const lefts = totalLefts();
+  const wasSearching = before.some(Boolean);
+  box.innerHTML = html;
+  const totals = [...box.querySelectorAll(".tile-total")];
+  const matches = [...box.querySelectorAll(".tile-match")];
+  cancelAnimationFrame(tileFrame);
+  // The matches' amounts count from what was on screen, or from 0 when the search just started.
+  const to = matches.map((el) => Number(el.dataset.cost));
+  const from = to.map((t, i) => (tileShown[i] ?? 0));
+  tileShown = matches.length ? to.slice() : [];
+  if (reduceMotion() || before.length !== totals.length) return;
+  // Each amount keeps room for its widest value on the way, so the total beside it holds still.
+  const text = (el, v) => (el.textContent = costText(v, el.dataset.approx === "1"));
+  matches.forEach((el, i) => {
+    const widths = [from[i], to[i]].map((v) => (text(el, v), el.getBoundingClientRect().width));
+    el.style.minWidth = `${Math.max(...widths)}px`;
+    text(el, from[i]);
+  });
+  // Starting or ending a search: the total slides right to make room (or back) and fades to grey
+  // (or back to white); a new amount fades in beside it.
+  totals.forEach((el, i) => {
+    if (before[i] === el.classList.contains("is-dim")) return;
+    el.classList.add(before[i] ? "was-dim" : "was-white");
+  });
+  if (!wasSearching) matches.forEach((el) => el.classList.add("is-new"));
+  slideTotals(totals, lefts, wasSearching && matches.length > 0);
+  totals.forEach((el) => el.classList.remove("was-dim", "was-white"));
+  matches.forEach((el) => el.classList.remove("is-new"));
+  const release = () => {
+    const at = totalLefts();
+    matches.forEach((el) => (el.style.minWidth = ""));
+    slideTotals(totals, at);
+  };
+  if (!matches.length || to.every((t, i) => Math.abs(t - from[i]) < 0.005)) return release();
+  const start = performance.now();
+  const step = (now) => {
+    const t = Math.min(1, (now - start) / 500);
+    const k = t === 1 ? 1 : 1 - Math.pow(1 - t, 3); // fast, then easing into the new value
+    matches.forEach((el, i) => {
+      tileShown[i] = from[i] + (to[i] - from[i]) * k;
+      text(el, tileShown[i]);
+    });
+    if (t < 1) tileFrame = requestAnimationFrame(step);
+    else {
+      tileShown = to.slice();
+      release();
+    }
+  };
+  tileFrame = requestAnimationFrame(step);
 }
 
 // What the cost was made of, as one bar with named parts. Facts only: suggestions come from the AI.
@@ -986,7 +1066,7 @@ function renderHistory() {
     }));
     list = window.ConversationSearch.searchConversations(items, query).map((h) => list[h.index]);
   }
-  $("historyTotals").innerHTML = historyTotals(list, all);
+  showTotals(historyTotals(list, all));
   const visible = list.slice(0, state.historyShown);
   $("historyRows").innerHTML = visible.length ? visible.map(conversationRow).join("")
     : query ? emptyRow(2, `No conversations match "${query}".`, { attr: "data-clear-history-search", label: "Clear search" })
