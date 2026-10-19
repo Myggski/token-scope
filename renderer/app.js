@@ -537,9 +537,9 @@ function aiTools(c) {
     },
     opencode: {
       name: "OpenCode", agent: true, measured: true,
-      steps: [`Add this to ${file(".config", "opencode", "opencode.json")} (create it if it doesn't exist). If it already has an "mcp" section, add the tokenscope entry inside it.`], snippet: opencode,
+      steps: [`Add this to ${file(".config", "opencode", "opencode.json")}, or opencode.jsonc if that's the one you have (create opencode.json if neither exists). If it already has an "mcp" section, add the tokenscope entry inside it.`], snippet: opencode,
       restart: "Restart OpenCode.",
-      hint: `In OpenCode, MCP servers go in ${file(".config", "opencode", "opencode.json")}, in this format:\n${opencode}`,
+      hint: `In OpenCode, MCP servers go in ${file(".config", "opencode", "opencode.json")} (or opencode.jsonc, if that's the file that exists), in this format:\n${opencode}`,
     },
     other: {
       name: "Other", agent: true, other: true,

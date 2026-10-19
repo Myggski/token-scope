@@ -19,7 +19,7 @@ const cursorRecords = () => userFile(path.join("history", "cursor"));
 // AI tools start the MCP program as a plain background program (see mcpLaunch). `--mcp` is the
 // older way of starting it, still accepted: it hands over to the background program.
 const MCP_MODE = process.argv.includes("--mcp");
-const MCP_FILES = ["mcp-main.js", "mcp.js", "models.js", "estimate.js", "store.js", "jobs.js", "claudelogs.js", "history.js", "insights.js", "checks.js", "cursor-hook.js", "codexlogs.js", "archive.js", "wsl.js"];
+const { copyMcp } = require("./src/mcpcopy");
 let store; // created once the app knows its data folder
 
 function readJson(file) {
@@ -87,23 +87,7 @@ async function loadModels() {
 // to the data folder, which never moves.
 function mcpScript() {
   if (!app.isPackaged) return path.join(__dirname, "src", "mcp-main.js");
-  const target = path.join(app.getPath("userData"), "mcp");
-  fs.mkdirSync(path.join(target, "src"), { recursive: true });
-  fs.mkdirSync(path.join(target, "data"), { recursive: true });
-  for (const file of MCP_FILES) fs.writeFileSync(path.join(target, "src", file), fs.readFileSync(path.join(__dirname, "src", file)));
-  fs.writeFileSync(path.join(target, "data", "openrouter-snapshot.json"), fs.readFileSync(path.join(__dirname, "data", "openrouter-snapshot.json")));
-  // sql.js reads OpenCode's database; copy the two files it needs next to the scripts.
-  const sqlFrom = path.dirname(require.resolve("sql.js"));
-  const sqlTo = path.join(target, "node_modules", "sql.js", "dist");
-  fs.mkdirSync(sqlTo, { recursive: true });
-  for (const file of ["sql-wasm.js", "sql-wasm.wasm"]) fs.writeFileSync(path.join(sqlTo, file), fs.readFileSync(path.join(sqlFrom, file)));
-  fs.writeFileSync(path.join(target, "node_modules", "sql.js", "package.json"), JSON.stringify({ name: "sql.js", main: "dist/sql-wasm.js" }));
-  // fzstd unpacks Codex's compressed logs; one file.
-  const zstdTo = path.join(target, "node_modules", "fzstd", "lib");
-  fs.mkdirSync(zstdTo, { recursive: true });
-  fs.writeFileSync(path.join(zstdTo, "index.js"), fs.readFileSync(require.resolve("fzstd")));
-  fs.writeFileSync(path.join(target, "node_modules", "fzstd", "package.json"), JSON.stringify({ name: "fzstd", main: "lib/index.js" }));
-  return path.join(target, "src", "mcp-main.js");
+  return copyMcp(path.join(app.getPath("userData"), "mcp"), __dirname);
 }
 
 // What Cursor's hook runs: this app's executable as plain Node, with the recorder script.
