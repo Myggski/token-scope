@@ -750,7 +750,6 @@ function factsLine(c) {
   if (f.cacheExpiries && f.cacheExpiries.length) bits.push(`cache expired ${f.cacheExpiries.length}×`);
   if (f.peakContextTokens) bits.push(`grew to ${formatTokens(f.peakContextTokens)} tokens`);
   if (f.helperCost >= 0.01 && !(c.helpers && c.helpers.length)) bits.push(`helper agents ${costText(f.helperCost, c.approximate)}`); // named ones get their own list
-  else if (c.helpers && c.helpers.length) bits.push(`subagents ${costText(f.helperCost || 0, c.approximate)}`);
   return bits.join(" · ");
 }
 
@@ -835,14 +834,14 @@ function conversationPanel(c) {
       <div class="panel-block">
         <h4>Subagents it started</h4>
         <p class="panel-note">${c.helpers.length} subagent${c.helpers.length === 1 ? "" : "s"} · ${costText(total, c.approximate)} in all, included in this conversation's cost.</p>
-        <ul class="model-rows">${rows.slice(0, shown).map((g) => `
+        <ul class="model-rows subagent-rows">${rows.slice(0, shown).map((g) => `
           <li><span class="model-label">${escape(g.title)}${g.runs > 1 ? ` <span class="muted">×${g.runs}</span>` : ""}</span><span class="num">${costText(g.cost, c.approximate)}</span></li>`).join("")}
         </ul>
         ${more > 0 ? `<button class="button ghost" type="button" data-more-subagents="${escape(c.id)}">Show ${more} more</button>` : ""}
       </div>`;
   }
   return `
-    <div class="job-panel single">${why}${subagents}
+    <div class="job-panel single">${why}
       <div class="panel-block">
         <h4>By model</h4>
         <table class="mini">
@@ -859,7 +858,7 @@ function conversationPanel(c) {
           </tbody>
         </table>
         <p class="panel-note">${c.approximate ? "Approximate, worked out from the size of each Cursor step. Usually within about 15%. Cursor's own usage page has the exact amount." : c.saved ? `Exact, from ${escape(TOOL_NAMES[c.tool] || c.tool)}'s token counts. ${escape(TOOL_NAMES[c.tool] || c.tool)} no longer has this conversation, so this is TokenScope's saved summary, priced when it was saved.` : "Exact, from the tool's own token counts."}${c.unpriced ? " Some models have no price on OpenRouter, so they're not in the total." : ""}${jobs.length ? ` Plans in this conversation: ${escape(jobs.map((j) => j.title).join(", "))}.` : ""}</p>
-      </div>
+      </div>${subagents}
       ${otherModelsBlock(c)}
     </div>`;
 }
