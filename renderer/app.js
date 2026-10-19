@@ -33,12 +33,9 @@ const state = {
   openJobs: new Set(), // jobs whose Details are open, kept open when the list redraws
   history: null, // { conversations, keepDays, errors, warnings } from the last load
   sources: [], // the AI tools TokenScope can track, and whether they're on
-  historyTool: "all", // Spending's tool filter
-  historyProvider: "all", // Spending's model maker filter (Anthropic, OpenAI…)
   compareModels: null, // models a conversation is re-priced on in Spending; null = your favorites
   historyShown: PAGE,
   historySearch: "", // Spending's search (not remembered between launches)
-  historyLayout: { tools: false, makers: false }, // which Spending filter rows the last load had (space kept while loading)
   openConversations: new Set(),
   subagentsShown: new Map(), // conversation id -> how many subagent rows its Details show
   openSubagents: new Set(), // conversations whose subagent list is open
@@ -716,7 +713,7 @@ function providerOf(m) {
 // m.tier: Codex's fast or flex speed, which is priced differently.
 const historyModelName = (m) => (m.modelId ? modelName(m.modelId) + (m.tier ? ` (${m.tier})` : "") : m.model);
 
-// Totals for a few periods, from the conversations shown (after the tool filter).
+// Totals for a few periods, from the conversations shown (after the search).
 function historyTotals(list) {
   const now = Date.now();
   const today = new Date();
@@ -784,7 +781,7 @@ function compareText(actual, other) {
 function otherModelsBlock(c) {
   const used = new Set(c.models.map((m) => m.modelId).filter(Boolean));
   const list = (state.compareModels || [...state.favorites]).filter((id) => !used.has(id)).map((id) => state.models.find((m) => m.id === id)).filter(Boolean);
-  const whole = c.partOf ?? c.cost; // the whole conversation, also when a maker filter is on
+  const whole = c.partOf ?? c.cost;
   const priced = !c.unpriced || c.partOf !== undefined ? whole : null;
   const peak = c.insights && c.insights.facts && c.insights.facts.peakContextTokens;
   const rows = list.map((m) => {
@@ -931,8 +928,6 @@ function conversationRow(c) {
 // Shown in the table when there's nothing to list, like the Jobs table does.
 function historyEmpty(row) {
   $("historyTotals").hidden = true;
-  $("historyTools").hidden = true;
-  $("historyProviders").hidden = true;
   $("historyRows").innerHTML = row;
   $("historyCount").textContent = "";
   $("historyMore").hidden = true;
@@ -950,63 +945,23 @@ function renderHistory() {
   }
   $("historyTotals").hidden = false;
   if (!state.history) {
-    // While loading, the totals and the filter rows the last load had keep their space, so
-    // nothing moves when the conversations arrive.
+    // While loading, the totals keep their space, so nothing moves when the conversations arrive.
     const keep = Number($("historyKeep").value);
     const tiles = 3 + (keep === 0 || keep > 30 ? 1 : 0);
     $("historyTotals").innerHTML = Array.from({ length: tiles }, () =>
       `<div class="tile placeholder" aria-hidden="true"><span class="tile-label">&nbsp;</span><span class="tile-value">&nbsp;</span><span class="tile-hint">&nbsp;</span></div>`).join("");
-    for (const [id, on] of [["historyTools", state.historyLayout.tools], ["historyProviders", state.historyLayout.makers]]) {
-      $(id).hidden = !on;
-      $(id).innerHTML = on ? `<span class="chip placeholder" aria-hidden="true">&nbsp;</span>` : "";
-    }
     $("historyRows").innerHTML = `<tr><td colspan="2" class="empty">Loading…</td></tr>`;
     return;
   }
   const all = state.history.conversations;
-  // The tool filter shows only when more than one tool has conversations. Whether each filter row
-  // shows depends on all conversations, never on what's picked, so picking never moves the list.
-  const tools = [...new Set(all.map((c) => c.tool))];
-  const makersInAll = new Set(all.flatMap((c) => c.models.map(providerOf)));
-  const layout = { tools: tools.length > 1, makers: makersInAll.size > 1 };
-  if (layout.tools !== state.historyLayout.tools || layout.makers !== state.historyLayout.makers) {
-    state.historyLayout = layout;
-    save("historyLayout", layout);
-  }
-  if (!tools.includes(state.historyTool)) state.historyTool = "all";
-  $("historyTools").hidden = !layout.tools;
-  $("historyTools").innerHTML = !layout.tools ? "" : ["all", ...tools].map((t) =>
-    `<button type="button" class="chip radio" role="radio" data-history-tool="${t}" aria-checked="${t === state.historyTool}" tabindex="${t === state.historyTool ? 0 : -1}">${t === "all" ? "All tools" : escape(TOOL_NAMES[t] || t)}</button>`).join("");
-  const byTool = state.historyTool === "all" ? all : all.filter((c) => c.tool === state.historyTool);
-  // Who made the models (Anthropic, OpenAI…), with what each cost, so they can be compared at a glance.
-  const providerCost = new Map();
-  for (const c of byTool) for (const m of c.models) providerCost.set(providerOf(m), (providerCost.get(providerOf(m)) || 0) + (m.cost || 0));
-  // Every maker in all conversations, so the row keeps its chips (and its height) whatever tool is
-  // picked; one the picked tool never used is shown but can't be picked.
-  const allCost = new Map();
-  for (const c of all) for (const m of c.models) allCost.set(providerOf(m), (allCost.get(providerOf(m)) || 0) + (m.cost || 0));
-  const providers = [...allCost].sort((a, b) => b[1] - a[1]).map(([p]) => p);
-  if (!providerCost.has(state.historyProvider)) state.historyProvider = "all";
-  const approx = byTool.some((c) => c.approximate);
-  $("historyProviders").hidden = !layout.makers;
-  $("historyProviders").innerHTML = !layout.makers ? "" : ["all", ...providers].map((p) => {
-    const used = p === "all" || providerCost.has(p);
-    const label = p === "all" ? `All models · ${costText(byTool.reduce((s, c) => s + c.cost, 0), approx)}` : `${p} · ${used ? costText(providerCost.get(p), approx) : "none"}`;
-    return `<button type="button" class="chip radio" role="radio" data-history-provider="${escape(p)}" aria-checked="${p === state.historyProvider}" tabindex="${p === state.historyProvider ? 0 : -1}"${used ? "" : " disabled"}>${escape(label)}</button>`;
-  }).join("");
-  // With a maker picked: the conversations that used its models, counting only their part.
-  let list = state.historyProvider === "all" ? byTool : byTool.map((c) => {
-    const mine = c.models.filter((m) => providerOf(m) === state.historyProvider);
-    if (!mine.length) return null;
-    return { ...c, cost: mine.reduce((s, m) => s + (m.cost || 0), 0), partOf: c.cost, unpriced: mine.some((m) => m.cost === null) };
-  }).filter(Boolean);
+  let list = all;
   // Search: every conversation, not just the ones shown; name matches first (see search.js). The
   // totals follow it, so they say what the conversations you searched for cost.
   const query = state.historySearch.trim();
   if (query) {
     const items = list.map((c) => ({
       title: c.title,
-      details: [conversationMeta(c), TOOL_NAMES[c.tool] || c.tool, c.archived ? "archived" : "", formatDate(c.end), ...(c.helpers || []).map((h) => h.title)].join(" · "),
+      details: [conversationMeta(c), TOOL_NAMES[c.tool] || c.tool, ...new Set(c.models.map(providerOf)), c.archived ? "archived" : "", formatDate(c.end), ...(c.helpers || []).map((h) => h.title)].join(" · "),
     }));
     list = window.ConversationSearch.searchConversations(items, query).map((h) => list[h.index]);
   }
@@ -1245,24 +1200,6 @@ $("historyRows").addEventListener("click", (event) => {
   $("historySearch").focus();
 });
 
-$("historyProviders").addEventListener("click", (event) => {
-  const b = event.target.closest("[data-history-provider]");
-  if (!b || b.dataset.historyProvider === state.historyProvider) return;
-  state.historyProvider = b.dataset.historyProvider;
-  state.historyShown = PAGE;
-  renderHistory();
-  animateRows($("historyRows"));
-});
-
-$("historyTools").addEventListener("click", (event) => {
-  const b = event.target.closest("[data-history-tool]");
-  if (!b || b.dataset.historyTool === state.historyTool) return;
-  state.historyTool = b.dataset.historyTool;
-  state.historyShown = PAGE;
-  renderHistory();
-  animateRows($("historyRows"));
-});
-
 $("historyMore").addEventListener("click", () => {
   const before = $("historyRows").children.length;
   state.historyShown += PAGE;
@@ -1485,7 +1422,6 @@ function applyStore(data) {
   $("tokens").value = state.tokensText;
   applyTheme();
   $("historyKeep").value = String(s.historyDays !== undefined && Number.isFinite(Number(s.historyDays)) ? s.historyDays : 90);
-  if (s.historyLayout && typeof s.historyLayout === "object") state.historyLayout = { tools: !!s.historyLayout.tools, makers: !!s.historyLayout.makers };
   // Sources, then a quiet history read for data warnings, even before History is opened.
   state.history = null;
   loadSources().then(() => (anyTracking() ? loadHistory() : renderHistory()));

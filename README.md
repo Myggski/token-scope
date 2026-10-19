@@ -14,7 +14,7 @@ The app shows facts only. The suggestions come from your AI.
 
 - **Models:** current prices for every model on [OpenRouter](https://openrouter.ai/models), with sorting, filters and favorites.
 - **Plans:** what a task will cost before your AI starts it, with a range and a breakdown per phase, next to what it really cost.
-- **Spending:** what each AI conversation cost and what made up the cost, like cache that expired or large outputs that got re-read. Filter by tool or by model maker to compare, for example, Claude and GPT, and see what any conversation would have cost on another model.
+- **Spending:** what each AI conversation cost and what made up the cost, like cache that expired or large outputs that got re-read. Search by name, tool, project or model, and see what any conversation would have cost on another model.
 
 | | Plans: estimates | Plans: real costs | Spending |
 | --- | --- | --- | --- |
