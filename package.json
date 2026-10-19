@@ -1,7 +1,7 @@
 {
   "name": "tokenscope",
   "productName": "TokenScope",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "See what your AI coding costs before and after: estimate tasks, measure what they really cost, and track spending across Claude Code, Codex, Cursor and OpenCode.",
   "keywords": [
     "ai",
@@ -44,7 +44,7 @@
   "build": {
     "appId": "com.tomaswallin.tokenscope",
     "productName": "TokenScope",
-    "copyright": "Copyright \u00a9 2026 Tomas Wallin",
+    "copyright": "Copyright © 2026 Tomas Wallin",
     "files": [
       "main.js",
       "preload.js",
