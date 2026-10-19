@@ -713,6 +713,20 @@ function providerOf(m) {
 // m.tier: Codex's fast or flex speed, which is priced differently.
 const historyModelName = (m) => (m.modelId ? modelName(m.modelId) + (m.tier ? ` (${m.tier})` : "") : m.model);
 
+// What a conversation's models can be searched by besides their names: the maker, the model id as
+// the tool wrote it, and the name people know the maker's models by (GPT is "ChatGPT" to many).
+const KNOWN_AS = { openai: "ChatGPT", google: "Gemini", xai: "Grok", anthropic: "Claude" };
+function modelWords(c) {
+  const out = new Set();
+  for (const m of c.models) {
+    const maker = providerOf(m);
+    out.add(maker);
+    if (KNOWN_AS[maker.toLowerCase()]) out.add(KNOWN_AS[maker.toLowerCase()]);
+    for (const id of [m.model, m.modelId]) if (id) out.add(String(id));
+  }
+  return [...out];
+}
+
 // Totals for a few periods, from the conversations shown (after the search).
 function historyTotals(list) {
   const now = Date.now();
@@ -961,7 +975,7 @@ function renderHistory() {
   if (query) {
     const items = list.map((c) => ({
       title: c.title,
-      details: [conversationMeta(c), TOOL_NAMES[c.tool] || c.tool, ...new Set(c.models.map(providerOf)), c.archived ? "archived" : "", formatDate(c.end), ...(c.helpers || []).map((h) => h.title)].join(" · "),
+      details: [conversationMeta(c), TOOL_NAMES[c.tool] || c.tool, ...modelWords(c), c.archived ? "archived" : "", formatDate(c.end), ...(c.helpers || []).map((h) => h.title)].join(" · "),
     }));
     list = window.ConversationSearch.searchConversations(items, query).map((h) => list[h.index]);
   }
