@@ -54,6 +54,36 @@ async function loadPrices() {
   }
 }
 
+// Updates: the installed app checks GitHub's releases a little after starting and every 6 hours,
+// downloads a newer version in the background, then asks (see renderer snackbar). "Later" installs
+// it the next time TokenScope closes. Not from source, and not in the portable .exe (it can't install).
+let updateReady = null; // the version that's downloaded and waiting
+function startUpdates(window) {
+  ipcMain.handle("update:status", () => updateReady);
+  ipcMain.handle("update:install", () => {
+    if (updateReady) require("electron-updater").autoUpdater.quitAndInstall(true, true); // quietly, then open again
+  });
+  if (!app.isPackaged || process.env.PORTABLE_EXECUTABLE_FILE || process.env.TOKENSCOPE_NO_UPDATES) return;
+  let autoUpdater;
+  try {
+    ({ autoUpdater } = require("electron-updater"));
+  } catch (error) {
+    console.error("Updates unavailable:", error.message);
+    return;
+  }
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.logger = null;
+  autoUpdater.on("update-downloaded", (info) => {
+    updateReady = info.version;
+    if (!window.isDestroyed()) window.webContents.send("update:ready", info.version);
+  });
+  autoUpdater.on("error", (error) => console.error("Update check failed:", error.message)); // offline, or GitHub unreachable: try again later
+  const check = () => autoUpdater.checkForUpdates().catch(() => {});
+  setTimeout(check, 15e3);
+  setInterval(check, 6 * 3600e3);
+}
+
 function createWindow() {
   const window = new BrowserWindow({
     width: 1080,
@@ -264,6 +294,7 @@ function startWindowApp() {
   ipcMain.handle("clipboard:write", (event, text) => clipboard.writeText(String(text)));
 
   const window = createWindow();
+  startUpdates(window);
   const changed = () => !window.isDestroyed() && window.webContents.send("store:changed");
   // Changes from the AI (or a hand edit of the data file) show up in the window.
   store.watch(changed);

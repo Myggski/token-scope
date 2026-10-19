@@ -1239,6 +1239,31 @@ function snackbar(text) {
   }, 4000);
 }
 
+// A new version is downloaded: ask, with a choice, until answered. Later installs it on close.
+function updateReady(version) {
+  if (!version || document.querySelector(".snackbar.update")) return;
+  const bar = document.createElement("div");
+  bar.className = "snackbar update";
+  bar.innerHTML = `<span>TokenScope ${escape(version)} is ready to install.</span>
+    <button type="button" class="snackbar-action" data-update="later">Later</button>
+    <button type="button" class="snackbar-action" data-update="now">Restart now</button>`;
+  bar.addEventListener("click", (event) => {
+    const choice = event.target.closest("[data-update]");
+    if (!choice) return;
+    if (choice.dataset.update === "now") {
+      choice.disabled = true;
+      api.installUpdate();
+      return;
+    }
+    bar.classList.add("leaving");
+    setTimeout(() => bar.remove(), 250);
+    snackbar("It installs the next time you close TokenScope.");
+  });
+  $("snackbars").append(bar);
+}
+api.onUpdateReady(updateReady);
+api.updateStatus().then(updateReady).catch(() => {});
+
 // The cost breakdown bars get their widths here: the page's security rules don't allow sizes
 // written into the HTML itself.
 new MutationObserver(() => {

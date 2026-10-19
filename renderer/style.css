@@ -359,3 +359,8 @@ table.mini tr:last-child td { border-bottom: 0; }
 .tile.placeholder, .chip.placeholder { visibility: hidden; }
 .chip.placeholder { display: inline-flex; }
 .chip:disabled { opacity: 0.38; cursor: default; }
+/* The update question stays until answered, with two buttons (Material snackbar actions). */
+.snackbar.update { pointer-events: auto; padding-right: 8px; gap: 8px; }
+.snackbar-action { height: 36px; padding: 0 12px; border: 0; border-radius: var(--shape-s); background: transparent; color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
+.snackbar-action:hover { background: rgb(0 0 0 / .1); }
+.snackbar-action:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }

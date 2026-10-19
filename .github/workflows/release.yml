@@ -32,7 +32,8 @@ jobs:
           version="v$(node -p "require('./package.json').version")"
           ls dist
           set +e
-          gh release create "$version" dist/TokenScope-Setup-*.exe \
+          # latest.yml and the .blockmap tell installed copies there's a new version (see main.js startUpdates).
+          gh release create "$version" dist/TokenScope-Setup-*.exe dist/TokenScope-Setup-*.exe.blockmap dist/latest.yml \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "TokenScope ${version#v}" \

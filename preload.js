@@ -18,4 +18,7 @@ contextBridge.exposeInMainWorld("tokenscope", {
   historyList: () => ipcRenderer.invoke("history:list"),
   setHistoryKeep: (days) => ipcRenderer.invoke("history:setKeep", days),
   onStoreChanged: (callback) => ipcRenderer.on("store:changed", () => callback()),
+  updateStatus: () => ipcRenderer.invoke("update:status"),
+  installUpdate: () => ipcRenderer.invoke("update:install"),
+  onUpdateReady: (callback) => ipcRenderer.on("update:ready", (event, version) => callback(version)),
 });

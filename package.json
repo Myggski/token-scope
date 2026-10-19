@@ -33,6 +33,7 @@
     "dist:portable": "electron-builder --win portable"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "fzstd": "0.1.1",
     "sql.js": "1.12.0"
   },
@@ -43,7 +44,7 @@
   "build": {
     "appId": "com.tomaswallin.tokenscope",
     "productName": "TokenScope",
-    "copyright": "Copyright © 2026 Tomas Wallin",
+    "copyright": "Copyright \u00a9 2026 Tomas Wallin",
     "files": [
       "main.js",
       "preload.js",
@@ -64,6 +65,14 @@
       "shortcutName": "TokenScope",
       "runAfterFinish": true,
       "artifactName": "TokenScope-Setup-${version}.exe"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Myggski",
+        "repo": "token-scope",
+        "releaseType": "release"
+      }
+    ]
   }
 }

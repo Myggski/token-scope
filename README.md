@@ -28,7 +28,7 @@ The app shows facts only. The suggestions come from your AI.
 
 ## Privacy
 
-Everything stays on your computer. No accounts and no API keys. TokenScope reads the records your AI tools already keep (for Cursor, also each chat's name and size), and saves only sizes, costs and times, never your code, prompts or the AI's replies. Tracking is off until you switch it on. The only thing sent anywhere is the request for prices to OpenRouter.
+Everything stays on your computer. No accounts and no API keys. TokenScope reads the records your AI tools already keep (for Cursor, also each chat's name and size), and saves only sizes, costs and times, never your code, prompts or the AI's replies. Tracking is off until you switch it on. The only things sent anywhere are the request for prices to OpenRouter and the check for a new version on GitHub.
 
 ## Getting started
 
