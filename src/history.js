@@ -443,14 +443,18 @@ async function readOpenCode(models, since, { folder, checks = NO_CHECKS } = {}) 
     }
     let helperCost = 0;
     const helpers = helpersOf.get(id) || [];
+    const helperList = []; // { title, cost } per subagent, for the conversation's Details
     const jobIds = new Set(jobsBySession.get(id) || []);
     for (const helper of helpers) {
+      let cost = 0;
       for (const m of bySession.get(helper)) {
         addMessage(byModel, own, m);
         const p = findPricedModel(models, m.model);
-        helperCost += p ? usageCost(p, { requests: 1, input: m.tokens.input, cacheRead: m.tokens.read, write5m: m.tokens.write, write1h: 0, output: m.tokens.output }) : m.cost || 0;
+        cost += p ? usageCost(p, { requests: 1, input: m.tokens.input, cacheRead: m.tokens.read, write5m: m.tokens.write, write1h: 0, output: m.tokens.output }) : m.cost || 0;
         end = Math.max(end, m.time);
       }
+      helperCost += cost;
+      helperList.push({ title: (sessions.get(helper) || {}).title || "Subagent", cost });
       for (const job of jobsBySession.get(helper) || []) jobIds.add(job);
     }
     if (end < since) continue;
@@ -470,7 +474,7 @@ async function readOpenCode(models, since, { folder, checks = NO_CHECKS } = {}) 
     out.push({
       id: `opencode:${id}`, tool: "opencode", title: info.title || "Untitled conversation",
       project: info.cwd || cwd ? path.basename(info.cwd || cwd) : null, start, end, approximate: false, ...(info.archived ? { archived: true } : {}), jobIds: [...jobIds], ...priced,
-      ...(helpers.length ? { helpers: helpers.map((h) => (sessions.get(h) || {}).title || "Subagent"), includes: helpers.map((h) => `opencode:${h}`) } : {}),
+      ...(helpers.length ? { helpers: helperList, includes: helpers.map((h) => `opencode:${h}`) } : {}),
       insights: analyze({ requests, tools: [], cacheMinutes: 5, helperCost, total: priced.cost }),
     });
   }

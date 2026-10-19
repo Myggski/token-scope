@@ -747,8 +747,8 @@ function factsLine(c) {
   if (t.builds || t.tests) bits.push(`${t.builds || 0} builds and ${t.tests || 0} test runs${f.buildAndTestMinutes ? ` (${f.buildAndTestMinutes} min)` : ""}`);
   if (f.cacheExpiries && f.cacheExpiries.length) bits.push(`cache expired ${f.cacheExpiries.length}×`);
   if (f.peakContextTokens) bits.push(`grew to ${formatTokens(f.peakContextTokens)} tokens`);
-  // Named when the tool names them (OpenCode subagents), so you can see which ones ran here.
-  if (f.helperCost >= 0.01 || (c.helpers && c.helpers.length)) bits.push(`${c.helpers && c.helpers.length ? `subagent${c.helpers.length === 1 ? "" : "s"} (${c.helpers.join(", ")})` : "helper agents"} ${costText(f.helperCost || 0, c.approximate)}`);
+  if (f.helperCost >= 0.01 && !(c.helpers && c.helpers.length)) bits.push(`helper agents ${costText(f.helperCost, c.approximate)}`); // named ones get their own list
+  else if (c.helpers && c.helpers.length) bits.push(`subagents ${costText(f.helperCost || 0, c.approximate)}`);
   return bits.join(" · ");
 }
 
@@ -813,8 +813,17 @@ function conversationPanel(c) {
         ${driversBar(c)}
         <p class="panel-note">${escape(factsLine(c))}.</p>
       </div>` : "";
+  // Subagents this conversation started (OpenCode runs each in a session of its own). Their cost is included above.
+  const subagents = c.helpers && c.helpers.length ? `
+      <div class="panel-block">
+        <h4>Subagents it started</h4>
+        <ul class="model-rows">${c.helpers.map((h) => `
+          <li><span class="model-label">${escape(h.title)}</span><span class="num">${costText(h.cost, c.approximate)}</span></li>`).join("")}
+        </ul>
+        <p class="panel-note">Included in this conversation's cost.</p>
+      </div>` : "";
   return `
-    <div class="job-panel single">${why}
+    <div class="job-panel single">${why}${subagents}
       <div class="panel-block">
         <h4>By model</h4>
         <table class="mini">
@@ -847,7 +856,8 @@ function costNotes(c) {
 function conversationRow(c) {
   const open = state.openConversations.has(c.id);
   // Listed by when it was last active (a resumed conversation can run for days), so that's the date shown.
-  const meta = [c.project, `last active ${formatWhen(c.end)}`, formatDuration(c.end - c.start), c.models.map(historyModelName).join(", ")].filter(Boolean).join(" · ");
+  const subagents = c.helpers && c.helpers.length ? `${c.helpers.length} subagent${c.helpers.length === 1 ? "" : "s"}` : null;
+  const meta = [c.project, `last active ${formatWhen(c.end)}`, formatDuration(c.end - c.start), c.models.map(historyModelName).join(", "), subagents].filter(Boolean).join(" · ");
   const panelId = `conv-${c.id.replace(/[^a-z0-9-]/gi, "_")}`;
   return `
     <tr class="job-row${open ? " is-open" : ""}">
