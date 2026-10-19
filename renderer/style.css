@@ -396,3 +396,5 @@ tr.panel-row > td { padding: 4px 16px 16px 38px; }
 .job-panel { background: none; padding: 0; }
 /* Open subagents: the same green line on the left as an open plan or conversation. */
 .expander.is-open { box-shadow: inset 3px 0 0 var(--accent); }
+/* The version, quietly at the end of Settings & help. */
+.app-version { margin: 32px 0 8px; color: var(--muted); font-size: 12px; line-height: 16px; text-align: center; }

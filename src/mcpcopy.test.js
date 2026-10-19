@@ -9,7 +9,18 @@ const { spawn } = require("child_process");
 const { copyMcp } = require("./mcpcopy");
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ts-mcpcopy-"));
+// An old, broken copy from an earlier version is replaced completely, and nothing is left next to it.
+fs.mkdirSync(path.join(tmp, "mcp", "src"), { recursive: true });
+fs.writeFileSync(path.join(tmp, "mcp", "src", "history.js"), "broken old file");
+fs.writeFileSync(path.join(tmp, "mcp", "src", "removed-long-ago.js"), "");
 const script = copyMcp(path.join(tmp, "mcp"));
+assert.ok(!fs.readFileSync(path.join(tmp, "mcp", "src", "history.js"), "utf8").startsWith("broken"), "old file replaced");
+assert.ok(!fs.existsSync(path.join(tmp, "mcp", "src", "removed-long-ago.js")), "files an old version had are gone");
+assert.deepStrictEqual(fs.readdirSync(tmp).sort(), ["mcp"], "no temporary folders left behind");
+// A failure while building the new copy leaves the working one as it was.
+const before = fs.readFileSync(path.join(tmp, "mcp", "src", "mcp-main.js"), "utf8");
+assert.throws(() => copyMcp(path.join(tmp, "mcp"), path.join(tmp, "no-such-app")));
+assert.strictEqual(fs.readFileSync(path.join(tmp, "mcp", "src", "mcp-main.js"), "utf8"), before, "untouched");
 const version = require("../package.json").version;
 
 for (const file of fs.readdirSync(__dirname)) {

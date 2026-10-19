@@ -1314,8 +1314,17 @@ function snackbar(text) {
   }, 4000);
 }
 
+// Which version this is, at the bottom of Settings & help, and whether a newer one is waiting.
+function showVersion(ready) {
+  api.appVersion().then((v) => {
+    $("appVersion").textContent = `TokenScope ${v}${ready ? ` · ${ready} is ready to install` : ""}`;
+  }).catch(() => {});
+}
+showVersion(null);
+
 // A new version is downloaded: ask, with a choice, until answered. Later installs it on close.
 function updateReady(version) {
+  if (version) showVersion(version);
   if (!version || document.querySelector(".snackbar.update")) return;
   const bar = document.createElement("div");
   bar.className = "snackbar update";

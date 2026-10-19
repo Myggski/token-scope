@@ -5,7 +5,38 @@
 const fs = require("fs");
 const path = require("path");
 
+// Builds the copy in a folder next to the target, and only when it's complete swaps it in, so a
+// failure halfway (a file locked by antivirus, a full disk) never leaves a half old, half new copy.
+// If the swap itself isn't possible (the folder in use), the files are written over the old ones.
 function copyMcp(target, appDir = path.join(__dirname, "..")) {
+  const fresh = `${target}.new-${process.pid}`;
+  const old = `${target}.old-${process.pid}`;
+  fs.rmSync(fresh, { recursive: true, force: true });
+  writeCopy(fresh, appDir); // throws before touching the working copy if anything fails
+  try {
+    if (fs.existsSync(target)) fs.renameSync(target, old);
+    fs.renameSync(fresh, target);
+  } catch {
+    if (!fs.existsSync(target) && fs.existsSync(old)) fs.renameSync(old, target); // put the old one back first
+    writeCopy(target, appDir);
+  } finally {
+    fs.rmSync(fresh, { recursive: true, force: true });
+    try {
+      fs.rmSync(old, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    } catch {} // a leftover is harmless; it's cleaned up next time
+  }
+  // Leftovers of earlier starts that couldn't be cleaned up then.
+  for (const name of fs.readdirSync(path.dirname(target))) {
+    if (name.startsWith(`${path.basename(target)}.old-`) || name.startsWith(`${path.basename(target)}.new-`)) {
+      try {
+        fs.rmSync(path.join(path.dirname(target), name), { recursive: true, force: true });
+      } catch {}
+    }
+  }
+  return path.join(target, "src", "mcp-main.js");
+}
+
+function writeCopy(target, appDir) {
   const src = path.join(appDir, "src");
   fs.mkdirSync(path.join(target, "src"), { recursive: true });
   fs.mkdirSync(path.join(target, "data"), { recursive: true });
@@ -27,7 +58,6 @@ function copyMcp(target, appDir = path.join(__dirname, "..")) {
   fs.mkdirSync(zstdTo, { recursive: true });
   fs.writeFileSync(path.join(zstdTo, "index.js"), fs.readFileSync(require.resolve("fzstd")));
   fs.writeFileSync(path.join(target, "node_modules", "fzstd", "package.json"), JSON.stringify({ name: "fzstd", main: "lib/index.js" }));
-  return path.join(target, "src", "mcp-main.js");
 }
 
 module.exports = { copyMcp };

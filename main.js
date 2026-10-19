@@ -61,6 +61,7 @@ async function loadPrices() {
 let updateReady = null; // the version that's downloaded and waiting
 function startUpdates(window) {
   ipcMain.handle("update:status", () => updateReady);
+  ipcMain.handle("app:version", () => app.getVersion());
   ipcMain.handle("update:install", () => {
     if (updateReady) require("electron-updater").autoUpdater.quitAndInstall(true, true); // quietly, then open again
   });

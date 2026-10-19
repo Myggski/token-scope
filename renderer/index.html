@@ -272,17 +272,20 @@
             <ul>
               <li><strong><code>tokenscope-data.json</code></strong> stores your plans, favorites and settings. Copy this file to back them up.</li>
               <li><strong>The <code>history</code> folder</strong> stores usage recorded by the Cursor hook and summaries of conversations shown in Spending. These summaries contain costs, models and cost breakdowns, not the conversations themselves.</li>
+              <li><strong>The <code>mcp</code> folder</strong> holds the copy of TokenScope your AI tools run. It's refreshed every time TokenScope starts, so it always matches the installed version.</li>
               <li><strong>Other files</strong> are used by TokenScope to run the app.</li>
             </ul>
             <p>TokenScope saves conversation summaries so your spending history can last longer than the original records. For example, Claude Code deletes its own records after 30 days.</p>
             <h3>What does TokenScope read?</h3>
             <p>TokenScope reads the usage records already saved by Claude Code, Codex, OpenCode and Zed, but only for the tools you've turned on under Track AI spending.</p>
-            <p>It doesn't copy those records. It saves summaries of the conversations for Spending instead.</p>
+            <p>It only reads those records and never changes them. It saves summaries of the conversations for Spending instead.</p>
             <p>Claude Code's records are normally stored in <code id="claudeLogs"></code>. Codex's records are normally stored in <code id="codexLogs"></code>.</p>
             <p>If you run these tools inside WSL, TokenScope can also read their records there while WSL is running.</p>
             <h3>Does anything leave my computer?</h3>
             <p>TokenScope sends requests to OpenRouter to get model prices, and checks GitHub for a new version of TokenScope. These requests don't include information about you or your work.</p>
             <p>When a new version is ready, TokenScope asks before installing it. If you choose Later, it installs the next time you close TokenScope.</p>
+            <h3>Does TokenScope change anything outside its folder?</h3>
+            <p>Only Cursor's hook, when you turn on Cursor tracking. After an update, TokenScope keeps its own hook up to date. It never adds itself to your AI tools. You do that under Connect your AI tool.</p>
             <h3>What does "data mismatch" mean?</h3>
             <p>A source, such as OpenRouter or Cursor, has provided data that TokenScope doesn't recognize. This can happen when the source changes its data format.</p>
             <p>The warning tells you which source is affected. Costs from that source may be incorrect until TokenScope is updated.</p>
@@ -300,6 +303,7 @@
         </details>
         </div>
       </section>
+      <p id="appVersion" class="app-version"></p>
     </div>
   </main>
   <!-- Snackbars: short messages after an action, at the bottom, over the page. -->
