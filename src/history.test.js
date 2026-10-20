@@ -58,6 +58,7 @@ const T = Date.UTC(2026, 9, 1, 10, 0);
   assert.strictEqual(Number(s1.cost.toFixed(4)), 3 + 2.7 + 0.42 + 0.3, "each message counted once; OpenCode's own cost for unpriced models; the subagent included");
   assert.deepStrictEqual(s1.helpers.map((h) => h.title), ["Review changes (@code-reviewer subagent)"], "the subagent is part of the conversation that started it");
   assert.ok(Math.abs(s1.helpers[0].cost - 0.3) < 1e-6, "with its own cost");
+  assert.deepStrictEqual(s1.helpers[0].models.map((m) => m.model), ["claude-sonnet-5-5"], "and the model it ran on");
   assert.ok(Math.abs(s1.insights.facts.helperCost - 0.3) < 1e-6);
   assert.ok(!oconv.some((c) => c.id === "opencode:s3"), "not a conversation of its own");
   assert.strictEqual(Number(s2.cost.toFixed(4)), 16.1, "reasoning priced as output");
@@ -293,6 +294,34 @@ const T = Date.UTC(2026, 9, 1, 10, 0);
   assert.ok(!(await readOpenCode(models, T0 + 3600e3, { folder: oc })).some((c) => c.id === "opencode:fork" && c.title), "not listed when forked before the period shown");
   fs.rmSync(oc, { recursive: true, force: true });
   console.log("opencode $0 fork tests passed");
+})().catch((e) => { console.error(e); process.exit(1); });
+
+// OpenCode: a subagent is priced on the model it ran on, not the main conversation's.
+(async () => {
+  const { readOpenCode } = require("./history");
+  const SQL = await require("sql.js")({ locateFile: (f) => path.join(path.dirname(require.resolve("sql.js")), f) });
+  const oc = fs.mkdtempSync(path.join(os.tmpdir(), "ts-oc-submodel-"));
+  const T0 = Date.UTC(2026, 9, 20, 9, 0);
+  const db = new SQL.Database();
+  db.run("CREATE TABLE session (id TEXT, title TEXT, directory TEXT, parent_id TEXT)");
+  db.run("CREATE TABLE message (id TEXT, session_id TEXT, data TEXT)");
+  db.run("INSERT INTO session VALUES ('q', 'Quest desync', '/work/game', NULL)");
+  db.run("INSERT INTO session VALUES ('s', 'Find code (@searcher subagent)', '/work/game', 'q')");
+  const msg = (id, session, model, time) => JSON.stringify({ id, sessionID: session, role: "assistant", modelID: model, tokens: { input: 1e6, output: 1e5, reasoning: 0, cache: { read: 0, write: 0 } }, time: { created: time } });
+  db.run("INSERT INTO message VALUES ('m1', 'q', ?)", [msg("m1", "q", "claude-sonnet-5-5", T0)]);
+  db.run("INSERT INTO message VALUES ('h1', 's', ?)", [msg("h1", "s", "claude-haiku-5-5", T0 + 1000)]);
+  fs.writeFileSync(path.join(oc, "opencode.db"), Buffer.from(db.export()));
+  const models = [
+    { id: "anthropic/claude-sonnet-5.5", inPerM: 2, outPerM: 10, cachedPerM: 0.2, cacheWritePerM: 2.5 },
+    { id: "anthropic/claude-haiku-5.5", inPerM: 0.1, outPerM: 0.5, cachedPerM: 0.01, cacheWritePerM: 0.125 },
+  ];
+  const [q] = await readOpenCode(models, 0, { folder: oc });
+  const sonnet = 1 * 2 + 0.1 * 10, haiku = 1 * 0.1 + 0.1 * 0.5;
+  assert.ok(Math.abs(q.helpers[0].cost - haiku) < 1e-9, "the subagent at Haiku's prices");
+  assert.ok(Math.abs(q.cost - (sonnet + haiku)) < 1e-9, "the conversation: the main part at Sonnet's, the subagent at Haiku's");
+  assert.deepStrictEqual(q.models.map((m) => [m.modelId, m.requests]).sort(), [["anthropic/claude-haiku-5.5", 1], ["anthropic/claude-sonnet-5.5", 1]]);
+  fs.rmSync(oc, { recursive: true, force: true });
+  console.log("opencode subagent model tests passed");
 })().catch((e) => { console.error(e); process.exit(1); });
 
 // Several forks: two forks of one original, a fork of a fork, and the original continued afterwards.

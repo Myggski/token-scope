@@ -597,14 +597,16 @@ async function readOpenCode(models, since, { folder, checks = NO_CHECKS, savedOw
     const jobIds = new Set(jobsBySession.get(id) || []);
     for (const helper of helpers) {
       let cost = 0;
+      const ran = new Map(); // the models it ran on, as the tool recorded them
       for (const m of bySession.get(helper)) {
         addMessage(byModel, own, m);
         const p = findPricedModel(models, m.model);
+        ran.set(m.model, { model: m.model, modelId: p ? p.id : null });
         cost += p ? usageCost(p, { requests: 1, input: m.tokens.input, cacheRead: m.tokens.read, write5m: m.tokens.write, write1h: 0, output: m.tokens.output }) : m.cost || 0;
         end = Math.max(end, m.time);
       }
       helperCost += cost;
-      helperList.push({ title: (sessions.get(helper) || {}).title || "Subagent", cost });
+      helperList.push({ title: (sessions.get(helper) || {}).title || "Subagent", cost, models: [...ran.values()] });
       for (const job of jobsBySession.get(helper) || []) jobIds.add(job);
     }
     if (end < since) continue;
@@ -1222,7 +1224,7 @@ function zedCost(models, group) {
       const p = findPricedModel(models, name);
       const cost = p ? usageCost(p, add) : 0;
       helperCost += cost;
-      helpers.push({ title: t.title || "Subagent", cost });
+      helpers.push({ title: t.title || "Subagent", cost, models: [{ model: name, modelId: p ? p.id : null }] });
     }
   }
   return { priced: summarize(byModel, models), helperCost, helpers };

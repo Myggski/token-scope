@@ -371,7 +371,8 @@ table.mini tr:last-child td { border-bottom: 0; }
 .snackbar-action:hover { background: rgb(0 0 0 / .1); }
 .snackbar-action:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 /* Subagents: name and cost only, the cost on the right edge like the By model table above. */
-.model-rows.subagent-rows li { grid-template-columns: minmax(0, 1fr) auto; padding-right: 8px; min-height: 36px; }
+.model-rows.subagent-rows li { grid-template-columns: minmax(0, 1fr) auto; padding: 10px 8px 10px 0; min-height: 36px; }
+.subagent-rows .sub-value { margin-top: 2px; }
 /* An expander: one outlined box whose header opens its content inside the same box, so it's
    clear what belongs together (used for a conversation's subagents). */
 .expander { border: 1px solid var(--line); border-radius: var(--shape-s); overflow: hidden; }

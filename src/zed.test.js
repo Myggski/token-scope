@@ -55,6 +55,7 @@ const iso = (min) => new Date(T + min * 60e3).toISOString();
   assert.ok(Math.abs(main.cost - (sonnet + haiku)) < 1e-9, "exact, from Zed's own totals, subagent included");
   assert.deepStrictEqual(main.helpers.map((h) => h.title), ["Review (@reviewer)"]);
   assert.ok(Math.abs(main.helpers[0].cost - haiku) < 1e-9);
+  assert.deepStrictEqual(main.helpers[0].models.map((m) => m.modelId), ["anthropic/claude-haiku-5.5"], "the model the subagent ran on");
   assert.deepStrictEqual(main.includes, ["zed:t2"]);
   assert.strictEqual(main.project, "game");
   assert.strictEqual(main.totalsOnly, true, "Spending says there's no breakdown");

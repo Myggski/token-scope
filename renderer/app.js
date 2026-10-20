@@ -946,9 +946,10 @@ function conversationPanel(c) {
   if (c.helpers && c.helpers.length) {
     const groups = new Map();
     for (const h of c.helpers) {
-      const g = groups.get(h.title) || { title: h.title, cost: 0, runs: 0 };
+      const g = groups.get(h.title) || { title: h.title, cost: 0, runs: 0, models: new Set() };
       g.cost += h.cost;
       g.runs += 1;
+      for (const m of h.models || []) g.models.add(historyModelName(m));
       groups.set(h.title, g);
     }
     const rows = [...groups.values()].sort((a, b) => b.cost - a.cost);
@@ -965,7 +966,7 @@ function conversationPanel(c) {
         </button>
         ${open ? `<div class="expander-body" id="${listId}">
         <ul class="model-rows subagent-rows">${rows.slice(0, shown).map((g) => `
-          <li><span class="model-label">${escape(g.title)}${g.runs > 1 ? ` <span class="muted">×${g.runs}</span>` : ""}</span><span class="num">${costText(g.cost, c.approximate)}</span></li>`).join("")}
+          <li><span class="model-label">${escape(g.title)}${g.runs > 1 ? ` <span class="muted">×${g.runs}</span>` : ""}${g.models.size ? `<span class="sub-value">${escape([...g.models].join(", "))}</span>` : ""}</span><span class="num">${costText(g.cost, c.approximate)}</span></li>`).join("")}
         </ul>
         ${more > 0 ? `<div class="list-footer"><p class="count">Showing ${shown} of ${rows.length}.</p><button class="button ghost" type="button" data-more-subagents="${escape(c.id)}">Show ${more} more</button></div>` : ""}
         </div>` : ""}
