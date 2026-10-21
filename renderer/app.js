@@ -2,11 +2,12 @@ const { sortRows } = window.Models;
 const { correction, cacheWhatIf } = window.Estimate;
 const api = window.tokenscope;
 
-const SORTS = ["buck", "cost", "newest"];
+const SORTS = ["buck", "cost", "newest", "capable"];
 const SORT_NOTES = {
-  buck: "Newer and cheaper models first. Newer isn't always better.",
+  buck: "Capable and cheap models first. Models without a score come last, newest first.",
   cost: "Lowest price first, counting 3 tokens read for every token written.",
   newest: "Most recently released first.",
+  capable: "Most capable first. Models without a score come last, newest first.",
 };
 const OTHERS = "Others";
 const FAVORITES = "★ Favorites"; // a chip like the providers, matching the user's starred models
@@ -138,7 +139,14 @@ function favoriteCell(m) {
 
 function modelCell(m) {
   const details = [m.provider, formatReleased(m.created), formatContext(m.context)].filter(Boolean).join(" · ");
-  return `<td><span class="model-name">${escape(m.name)}</span><span class="provider">${escape(details)}</span>${retirementNote(m.retires)}</td>`;
+  // Its text wraps in a narrow window, so the table still fits without scrolling sideways.
+  return `<td class="wrap-text"><span class="model-name">${escape(m.name)}</span><span class="provider">${escape(details)}</span>${retirementNote(m.retires)}</td>`;
+}
+
+// Epoch AI's Capability score (see src/capability.js). – means no score, which isn't the same as a low one.
+function capabilityCell(m) {
+  if (!m.capability) return `<td class="num capability-col"><span class="muted" title="Epoch AI hasn't scored this model yet. That doesn't mean it's bad.">–</span></td>`;
+  return `<td class="num capability-col">${Math.round(m.capability.score)}</td>`;
 }
 
 function priceCell(m) {
@@ -168,7 +176,6 @@ function renderModels({ animate } = {}) {
     state.providers.has(top.has(m.provider) ? m.provider : OTHERS) ||
     (state.providers.has(FAVORITES) && state.favorites.has(m.id));
   const rows = state.models.filter((m) => inChips(m) && matchesSearch(m));
-  // Best for the buck treats newer as better, since most models lack a quality score.
   sortRows(rows, state.sort);
   renderProviders(top);
 
@@ -179,10 +186,11 @@ function renderModels({ animate } = {}) {
         <td class="rank">${i + 1}</td>
         ${favoriteCell(m)}
         ${modelCell(m)}
+        ${capabilityCell(m)}
         ${priceCell(m)}
         ${spendCell(m)}
       </tr>`).join("")
-    : `<tr><td colspan="5" class="empty">${state.providers.has(FAVORITES) && state.favorites.size === 0
+    : `<tr><td colspan="6" class="empty">${state.providers.has(FAVORITES) && state.favorites.size === 0
         ? "No favorites yet. Click All, then the ☆ next to a model to add it."
         : "No models match. Clear the search or pick other chips."}</td></tr>`;
 
@@ -444,14 +452,17 @@ function moveTabIndicator() {
 // ---------- Loading ----------
 
 function showStatus(prices) {
+  // Capability scores that couldn't be loaded at all (no saved copy either): said once, quietly.
+  const scores = prices.capability && prices.capability.source === "none"
+    ? ` <span class="warn" title="${escape(prices.capability.error || "")}">⚠ Couldn't reach Epoch AI, so there are no capability scores right now.</span>` : "";
   if (prices.source === "live") {
-    $("status").textContent = "Prices are up to date from OpenRouter";
+    $("status").innerHTML = `Prices are up to date from OpenRouter${scores}`;
     return;
   }
   // Not live: say how old the prices are. The technical reason is in the tooltip.
   const from = prices.source === "cache" ? "saved" : "built-in";
   const date = prices.date ? ` from ${prices.date}` : "";
-  $("status").innerHTML = `<span class="warn" title="${escape(prices.error || "")}">⚠ Couldn't reach OpenRouter. Showing ${from} prices${escape(date)}.</span>`;
+  $("status").innerHTML = `<span class="warn" title="${escape(prices.error || "")}">⚠ Couldn't reach OpenRouter. Showing ${from} prices${escape(date)}.</span>${scores}`;
 }
 
 let firstLoad = true;

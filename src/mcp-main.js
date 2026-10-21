@@ -30,6 +30,7 @@ const folder = dataFolder();
 fs.mkdirSync(folder, { recursive: true });
 const store = createStore(dataFile(folder));
 const cacheFile = path.join(folder, "openrouter-cache.json");
+const { readEpoch, matchScores } = require("./capability");
 const snapshotFile = path.join(__dirname, "..", "data", "openrouter-snapshot.json");
 const FRESH = 6 * 3600e3; // prices saved by the app within 6 hours are used as they are
 
@@ -76,6 +77,12 @@ async function getModels() {
   if (!models.length || Date.now() - loadedAt > 3600e3) {
     models = await loadPrices();
     loadedAt = Date.now();
+    // Capability scores from the app's saved copy of Epoch AI's file (the app fetches it).
+    const epoch = readJson(path.join(folder, "epoch-cache.json"));
+    if (epoch && epoch.text) {
+      const matched = matchScores(models, readEpoch(epoch.text));
+      for (const m of models) m.capability = matched.get(m.id) || null;
+    }
   }
   return models;
 }

@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { parseOpenRouter } = require("./src/models");
+const { EPOCH_URL, readEpoch, matchScores, checkMatches } = require("./src/capability");
 const { createStore, dataFile } = require("./src/store");
 const { syncActuals, logsFolder, logsFolders } = require("./src/claudelogs");
 const { setJobModels } = require("./src/jobs");
@@ -36,7 +37,11 @@ function readJson(file) {
 // certificates like a browser would (needed on many work networks).
 async function loadPrices() {
   const checks = createChecks();
-  const result = (data, source, error) => ({ models: data.models, prices: { source, error, date: data.fetched, warnings: checks.list() } });
+  const epoch = fetchEpoch(); // at the same time as the prices
+  const result = async (data, source, error) => {
+    const capability = await addCapability(data.models, await epoch, checks).catch((e) => ({ source: "none", error: e.message }));
+    return { models: data.models, prices: { source, error, date: data.fetched, capability, warnings: checks.list() } };
+  };
   try {
     const response = await net.fetch(OPENROUTER_URL, { signal: AbortSignal.timeout(15000) });
     if (!response.ok) throw new Error(`OpenRouter returned HTTP ${response.status}`);
@@ -46,13 +51,41 @@ async function loadPrices() {
     if (models.length < 20) throw new Error("OpenRouter returned too few models");
     const data = { models, fetched: new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) };
     fs.writeFileSync(userFile("openrouter-cache.json"), JSON.stringify(data));
-    return result(data, "live");
+    return await result(data, "live");
   } catch (error) {
     const cached = readJson(userFile("openrouter-cache.json"));
-    if (cached) return result(cached, "cache", error.message);
+    if (cached) return await result(cached, "cache", error.message);
     const snapshot = readJson(path.join(__dirname, "data", "openrouter-snapshot.json"));
-    return result({ models: snapshot ? parseOpenRouter(snapshot) : [], fetched: snapshot && snapshot.fetched }, "snapshot", error.message);
+    return await result({ models: snapshot ? parseOpenRouter(snapshot) : [], fetched: snapshot && snapshot.fetched }, "snapshot", error.message);
   }
+}
+
+// Capability scores from Epoch AI (see src/capability.js): live, else the last saved copy. Without
+// either, models simply have no score. Never stops the prices from loading.
+async function fetchEpoch() {
+  try {
+    const response = await net.fetch(EPOCH_URL, { signal: AbortSignal.timeout(15000) });
+    if (!response.ok) throw new Error(`Epoch AI returned HTTP ${response.status}`);
+    return { text: await response.text(), source: "live" };
+  } catch (error) {
+    const cached = readJson(userFile("epoch-cache.json"));
+    return cached && cached.text ? { ...cached, source: "cache", error: error.message } : { source: "none", error: error.message };
+  }
+}
+
+async function addCapability(models, epoch, checks) {
+  if (!epoch.text) return { source: "none", error: epoch.error };
+  const scores = readEpoch(epoch.text, checks);
+  const matched = matchScores(models, scores);
+  for (const m of models) m.capability = matched.get(m.id) || null;
+  const cached = readJson(userFile("epoch-cache.json"));
+  checkMatches(matched.size, scores.length, cached ? cached.matched || 0 : 0, checks);
+  if (epoch.source === "live" && scores.length) {
+    try {
+      fs.writeFileSync(userFile("epoch-cache.json"), JSON.stringify({ text: epoch.text, matched: matched.size, fetched: new Date().toISOString() }));
+    } catch {}
+  }
+  return { source: epoch.source, error: epoch.error, matched: matched.size };
 }
 
 // Updates: the installed app checks GitHub's releases a little after starting and every 6 hours,
@@ -262,6 +295,7 @@ function startWindowApp() {
   ipcMain.handle("data:clear", async (event, kind) => {
     const removePrices = async () => {
       fs.rmSync(userFile("openrouter-cache.json"), { force: true });
+      fs.rmSync(userFile("epoch-cache.json"), { force: true });
       await window.webContents.session.clearCache();
     };
     if (kind === "prices") return removePrices();

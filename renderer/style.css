@@ -101,6 +101,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 
 /* ---------- Models view ---------- */
 .fav-col { width: 1px; padding-inline: 0 4px; }
+.capability-col { width: 1px; white-space: nowrap; }
 .fav { position: relative; font: 20px/1 var(--body); background: none; border: 0; padding: 4px; border-radius: 4px; cursor: pointer; color: var(--muted); }
 .fav::after { content: ""; position: absolute; inset: -10px; }
 .fav[aria-pressed="true"], .fav:hover, .chip .star { color: var(--star); }

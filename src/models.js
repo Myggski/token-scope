@@ -41,27 +41,36 @@
     return models;
   }
 
-  // Best for the buck: grades each model 0-100 against the others shown, newness and price
-  // counting equally. Price uses ratios (log), so $0.25 -> $0.50 counts like $5 -> $10.
+  // Best for the buck: grades each model with a Capability score (Epoch AI) 0-100 against the others
+  // shown, its score and its price counting equally. Price uses ratios (log), so $0.25 -> $0.50
+  // counts like $5 -> $10. Models without a score get no grade.
   function gradeBangForBuck(list) {
-    const pool = list.filter((m) => m.created);
+    const spread = (values) => {
+      const min = Math.min(...values);
+      return { min, range: Math.max(...values) - min || 1 };
+    };
     const logPrice = (m) => Math.log(m.blended || 1e-9);
-    const dates = pool.map((m) => m.created), prices = pool.map(logPrice);
-    const minDate = Math.min(...dates), dateRange = Math.max(...dates) - minDate || 1;
-    const minPrice = Math.min(...prices), priceRange = Math.max(...prices) - minPrice || 1;
+    const scored = list.filter((m) => m.capability);
+    const cap = spread(scored.map((m) => m.capability.score)), price = spread(scored.map(logPrice));
     for (const m of list) {
-      m.buck = m.created ? 100 * (0.5 * (m.created - minDate) / dateRange + 0.5 * (1 - (logPrice(m) - minPrice) / priceRange)) : null;
+      m.buck = m.capability ? 100 * (0.5 * (m.capability.score - cap.min) / cap.range + 0.5 * (1 - (logPrice(m) - price.min) / price.range)) : null;
     }
   }
 
-  // sort: "buck", "cost" or "newest". Models without a release date go last in "buck".
+  // sort: "buck", "cost", "newest" or "capable". In "buck" and "capable", models without a
+  // Capability score come last, newest first.
   function sortRows(rows, sort) {
     const byPrice = (a, b) => a.blended - b.blended;
+    const byDate = (a, b) => (b.created || 0) - (a.created || 0);
+    const unscoredLast = (a, b) => !a.capability - !b.capability;
     if (sort === "cost") return rows.sort(byPrice);
-    if (sort === "newest") return rows.sort((a, b) => (b.created || 0) - (a.created || 0));
+    if (sort === "newest") return rows.sort(byDate);
+    if (sort === "capable") {
+      return rows.sort((a, b) => unscoredLast(a, b) || (a.capability ? b.capability.score - a.capability.score : byDate(a, b)) || byPrice(a, b));
+    }
     gradeBangForBuck(rows);
-    return rows.sort((a, b) => (a.buck === null) - (b.buck === null) || (b.buck || 0) - (a.buck || 0) || byPrice(a, b));
+    return rows.sort((a, b) => unscoredLast(a, b) || (a.capability ? b.buck - a.buck : byDate(a, b)) || byPrice(a, b));
   }
 
-  Object.assign(exports, { parseOpenRouter, sortRows });
+  Object.assign(exports, { parseOpenRouter, sortRows, gradeBangForBuck });
 })(typeof module !== "undefined" ? module.exports : (window.Models = {}));

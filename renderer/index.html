@@ -11,7 +11,7 @@
     <header class="top">
       <div>
         <h1>TokenScope</h1>
-        <p class="sub">Current prices for AI models from <a href="https://openrouter.ai/models" target="_blank">OpenRouter</a>, and what your AI work really costs.</p>
+        <p class="sub">Current prices for AI models from <a href="https://openrouter.ai/models" target="_blank">OpenRouter</a>, capability scores from <a href="https://epoch.ai/benchmarks/eci" target="_blank">Epoch AI</a>, and what your AI work really costs.</p>
       </div>
       <div class="status-box">
         <div class="top-buttons">
@@ -42,6 +42,7 @@
           <div class="control-row">
             <div class="seg" role="group" aria-label="Sort by">
               <button type="button" data-sort="buck">Best for the buck</button>
+              <button type="button" data-sort="capable">Most capable</button>
               <button type="button" data-sort="cost">Cheapest</button>
               <button type="button" data-sort="newest">Newest</button>
             </div>
@@ -69,6 +70,7 @@
                 <th>#</th>
                 <th class="fav-col"><span class="visually-hidden">Favorite</span></th>
                 <th>Model <span class="info left" tabindex="0" role="img" data-tip="Under the name: who makes it, when it came out, and how much text it can read at once (its context). A warning shows if the model is being shut down."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/></svg></span></th>
+                <th class="num capability-col">Capability <span class="info right" tabindex="0" role="img" data-tip="How capable the model is in general, according to Epoch AI. It combines many benchmarks and isn't about coding in particular. Higher is better, and even a few points is a big gap."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/></svg></span></th>
                 <th class="num">Price / 1M <span class="info right" tabindex="0" role="img" data-tip="Price per million tokens: reading (input) / writing (output). Under it: the cheaper price for text the model read recently (cached)."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/></svg></span></th>
                 <th class="num">Est. spend <span class="info right" tabindex="0" role="img" data-tip="What your token budget would cost on this model, counting 3 tokens read for every token written. Under it: the reading and writing parts."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/></svg></span></th>
               </tr>
@@ -165,7 +167,7 @@
         <h2 id="dataTitle">Your data</h2>
         <div class="data-folder"><span>Saved on this computer in</span> <code id="dataFolder"></code><button id="openData" class="soft-button" type="button">Open folder</button></div>
         <ul class="data-actions">
-          <li><div><strong>Clear price cache</strong><span>Removes saved prices so TokenScope fetches fresh prices from OpenRouter. Use this if prices look out of date.</span></div><button class="soft-button" type="button" data-clear="prices">Clear</button></li>
+          <li><div><strong>Clear price cache</strong><span>Removes saved prices and capability scores so TokenScope fetches fresh ones. Use this if they look out of date.</span></div><button class="soft-button" type="button" data-clear="prices">Clear</button></li>
           <li><div><strong>Reset settings</strong><span>Resets your filters, sorting, token budget, search and theme to their defaults. Your favorites and plans are kept.</span></div><button class="soft-button" type="button" data-clear="settings">Reset</button></li>
           <li><div><strong>Clear favorites</strong><span>Removes all your starred models.</span></div><button class="danger-button" type="button" data-clear="favorites">Clear</button></li>
           <li><div><strong>Delete saved spending history</strong><span>Deletes the spending data TokenScope has saved, including the Cursor hook's recorded usage and copies of older conversation summaries. Claude Code, Codex, OpenCode and Zed keep their own records, which will still appear in Spending if those tools are tracked. To hide a tool from Spending, turn it off under Track AI spending instead.</span></div><button class="danger-button" type="button" data-clear="history">Delete</button></li>
@@ -178,7 +180,7 @@
         <h2 id="helpTitle">Help</h2>
         <div class="help-groups">
         <details class="connect help-group" id="help-prices">
-          <summary><h2>Prices and models</h2><span class="summary-hint">Where prices come from, how sorting works and how to compare models</span></summary>
+          <summary><h2>Prices and models</h2><span class="summary-hint">Where prices and scores come from, how sorting works and how to compare models</span></summary>
           <div class="notes help-body">
             <h3>Where do prices come from?</h3>
             <p>TokenScope gets prices from OpenRouter, which collects pricing information from AI providers and updates it as prices change.</p>
@@ -186,11 +188,15 @@
             <h3>How does Cheapest work?</h3>
             <p>Sorts models by estimated cost, counting three tokens read for every token written. This is a rough estimate of the balance between reading and writing during coding work.</p>
             <h3>How does Best for the buck work?</h3>
-            <p>Balances price and release date equally. Newer models and cheaper models rank higher.</p>
-            <p>Newer models aren't always better, so use this ranking as a starting point, not a guarantee.</p>
-            <h3>Why is there no quality score?</h3>
-            <p>There isn't a free quality score that covers most of these models. DeepSWE's coding scores are outdated and cover only a few models. OpenRouter has scores for only a small selection, too.</p>
-            <p>Using these scores would favor models that happen to have been tested. The best way to judge a model is to try it on your own work.</p>
+            <p>It weighs the Capability score and the price equally, so capable models and cheap models both move up. Price counts by ratio, so going from $1 to $2 weighs as much as going from $10 to $20.</p>
+            <p>Models without a score come last, with the newest first. Treat this ranking as a starting point.</p>
+            <h3>What is the Capability score?</h3>
+            <p>It's the Epoch Capabilities Index from Epoch AI, an independent research group. They combine many benchmarks into one number, and a higher number means a more capable model.</p>
+            <p>The numbers sit close together, so small gaps matter. Claude Opus 5.5 scores 167 and Claude Haiku 5.5 scores 159, and that's a big difference.</p>
+            <p>It measures general ability, not coding in particular. Try a model on your own work before you switch.</p>
+            <h3>Why do some models show a dash?</h3>
+            <p>Epoch AI needs results from at least 4 benchmarks before it scores a model, and it tests models from the big AI labs first. New and less known models show a dash until then, and some never get a score.</p>
+            <p>The scores come from <a href="https://epoch.ai/benchmarks/eci" target="_blank">Epoch AI</a> and are shared under the <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank">CC BY 4.0</a> license. TokenScope matches them to OpenRouter's models by name and rounds them.</p>
             <h3>What are favorites for?</h3>
             <p>Star the models you use regularly. The Favorites filter shows only those models, and your AI uses them when estimating a task unless you choose other models.</p>
             <h3>What does the warning under a model mean?</h3>
@@ -283,12 +289,12 @@
             <p>Claude Code's records are normally stored in <code id="claudeLogs"></code>. Codex's records are normally stored in <code id="codexLogs"></code>.</p>
             <p>If you run these tools inside WSL, TokenScope can also read their records there while WSL is running.</p>
             <h3>Does anything leave my computer?</h3>
-            <p>TokenScope sends requests to OpenRouter to get model prices, and checks GitHub for a new version of TokenScope. These requests don't include information about you or your work.</p>
+            <p>TokenScope sends requests to OpenRouter to get model prices and to Epoch AI to get capability scores, and checks GitHub for a new version of TokenScope. These requests don't include information about you or your work.</p>
             <p>When a new version is ready, TokenScope asks before installing it. If you choose Later, it installs the next time you close TokenScope.</p>
             <h3>Does TokenScope change anything outside its folder?</h3>
             <p>Only Cursor's hook, when you turn on Cursor tracking. After an update, TokenScope keeps its own hook up to date. It never adds itself to your AI tools. You do that under Connect your AI tool.</p>
             <h3>What does "data mismatch" mean?</h3>
-            <p>A source, such as OpenRouter or Cursor, has provided data that TokenScope doesn't recognize. This can happen when the source changes its data format.</p>
+            <p>A source, such as OpenRouter, Epoch AI or Cursor, has provided data that TokenScope doesn't recognize. This can happen when the source changes its data format.</p>
             <p>The warning tells you which source is affected. Costs from that source may be incorrect until TokenScope is updated.</p>
             <h3>What's remembered between launches?</h3>
             <p>TokenScope remembers your favorites, filters, sorting, token budget, search and theme.</p>

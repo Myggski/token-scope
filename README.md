@@ -12,7 +12,7 @@ The app shows facts only. The suggestions come from your AI.
 
 ## Features
 
-- **Models:** current prices for every model on [OpenRouter](https://openrouter.ai/models), with sorting, filters and favorites.
+- **Models:** current prices for every model on [OpenRouter](https://openrouter.ai/models), with sorting, filters and favorites, and a capability score from [Epoch AI](https://epoch.ai/benchmarks/eci) for the models it has tested.
 - **Plans:** what a task will cost before your AI starts it, with a range and a breakdown per phase, next to what it really cost.
 - **Spending:** what each AI conversation cost and what made up the cost, like cache that expired or large outputs that got re-read. Search by name, tool, project or model, and see what any conversation would have cost on another model.
 
@@ -29,7 +29,7 @@ The app shows facts only. The suggestions come from your AI.
 
 ## Privacy
 
-Everything stays on your computer. No accounts and no API keys. TokenScope reads the records your AI tools already keep (for Cursor, also each chat's name and size), and saves only sizes, costs and times, never your code, prompts or the AI's replies. Tracking is off until you switch it on. The only things sent anywhere are the request for prices to OpenRouter and the check for a new version on GitHub.
+Everything stays on your computer. No accounts and no API keys. TokenScope reads the records your AI tools already keep (for Cursor, also each chat's name and size), and saves only sizes, costs and times, never your code, prompts or the AI's replies. Tracking is off until you switch it on. The only things sent anywhere are the requests for prices to OpenRouter and for capability scores to Epoch AI, and the check for a new version on GitHub.
 
 ## Getting started
 
@@ -57,6 +57,7 @@ Where things are:
 - `src/mcp.js`, `src/mcp-main.js`: the [MCP](https://modelcontextprotocol.io) server your AI talks to.
 - `src/estimate.js`, `src/jobs.js`: the cost math and saved plans (called jobs in the code).
 - `src/claudelogs.js`, `src/codexlogs.js`, `src/history.js`, `src/zed.js`: reading Claude Code, Codex, OpenCode, Zed and Cursor records, for Spending and real costs.
+- `src/capability.js`: Epoch AI's capability scores, matched to OpenRouter's models.
 - `src/archive.js`: saved summaries, so Spending keeps conversations after a tool deletes its own records.
 - `src/wsl.js`: finding the tools' records inside WSL.
 - `src/cursorhook.js`, `src/cursor-hook.js`: the optional Cursor hook.
@@ -64,5 +65,10 @@ Where things are:
 - `renderer/`: the interface.
 
 App data is saved in `%APPDATA%\TokenScope`: `tokenscope-data.json` (plans, favorites, settings) and the `history` folder (Cursor records and saved summaries).
+
+## Data sources
+
+- Prices: [OpenRouter](https://openrouter.ai/models).
+- Capability scores: the [Epoch Capabilities Index](https://epoch.ai/benchmarks/eci) by [Epoch AI](https://epoch.ai), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). TokenScope downloads the scores, matches them to OpenRouter's models by name and rounds them. It doesn't change them in any other way.
 
 The interface uses the [Geist](https://vercel.com/font) fonts (SIL Open Font License, in `renderer/fonts/`) and follows Material Design 3 sizes and spacing.

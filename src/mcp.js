@@ -19,7 +19,7 @@ const PLAN_FIELDS = {
 const TOOLS = [
   {
     name: "list_models",
-    description: "List AI models with current prices from OpenRouter (USD per 1M tokens), context window, release date, shutdown date and whether the user starred it as a favorite. Use it to find model ids for the other tools.",
+    description: "List AI models with current prices from OpenRouter (USD per 1M tokens), context window, release date, shutdown date, capability score (Epoch AI's Capabilities Index. It measures general ability, not coding in particular. Higher is more capable, and a few points is a big difference. It's null when Epoch AI hasn't scored the model) and whether the user starred it as a favorite. Use it to find model ids for the other tools.",
     inputSchema: {
       type: "object",
       properties: {
@@ -28,7 +28,7 @@ const TOOLS = [
         favorites_only: { type: "boolean", description: "Only the user's favorites." },
         max_blended_price: { type: "number", description: "Highest blended price per 1M tokens (3 input : 1 output)." },
         min_context: { type: "number", description: "Smallest context window in tokens." },
-        sort: { type: "string", enum: ["buck", "cost", "newest"], description: "buck = newer and cheaper first (default), cost = cheapest first, newest = latest release first." },
+        sort: { type: "string", enum: ["buck", "cost", "newest", "capable"], description: "buck = more capable and cheaper first, models without a capability score last, newest first (default), cost = cheapest first, newest = latest release first, capable = highest capability score first." },
         limit: { type: "number", description: "Most models to return. Default 20, max 200." },
       },
     },
@@ -131,6 +131,8 @@ function describeModel(m, favorites) {
     blended_per_1m: round(m.blended),
     context_tokens: m.context,
     released: m.created ? new Date(m.created * 1000).toISOString().slice(0, 10) : null,
+    // Epoch AI's Capabilities Index (CC BY 4.0): general ability, not coding-specific. null: no score.
+    capability: m.capability ? Math.round(m.capability.score) : null,
     shuts_down: m.retires || null,
     favorite: favorites.has(m.id),
   };
@@ -188,7 +190,7 @@ function createHandlers({ store, getModels, sync = async () => {}, client = () =
         (!args.favorites_only || favorites.has(m.id)) &&
         (args.max_blended_price === undefined || m.blended <= args.max_blended_price) &&
         (args.min_context === undefined || (m.context || 0) >= args.min_context));
-      rows = sortRows(rows, ["buck", "cost", "newest"].includes(args.sort) ? args.sort : "buck");
+      rows = sortRows(rows, ["buck", "cost", "newest", "capable"].includes(args.sort) ? args.sort : "buck");
       const limit = Math.min(200, Math.max(1, args.limit || 20));
       return { total_matching: rows.length, models: rows.slice(0, limit).map((m) => describeModel(m, favorites)) };
     },
