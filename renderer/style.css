@@ -333,6 +333,16 @@ table.mini tr:last-child td { border-bottom: 0; }
 .history-table th:nth-child(2) { width: 160px; }
 /* The cost breakdown: parts are named in the legend, so the colors are only a help. */
 .drivers { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: var(--line); gap: 2px; }
+.list-drivers { display: flex; flex-direction: column; gap: 8px; padding: 12px; margin: -8px 0 0; border: 1px solid var(--line); border-radius: var(--shape-m); } /* 8px below the totals, like the gaps between them */
+.list-drivers .driver-legend { margin: 0; }
+.list-drivers-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.list-total { font-size: 16px; line-height: 24px; font-weight: 500; color: var(--fg); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.list-total .list-total-all { margin-left: 4px; }
+.list-drivers .driver { transition: width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), margin 0.5s; }
+.list-drivers .driver.is-empty { min-width: 0; margin-right: -2px; }
+.list-drivers li { transition: opacity 0.3s; }
+.list-drivers li.is-empty { opacity: 0.45; }
+.list-drivers .part-cost, .list-drivers .part-share { font-variant-numeric: tabular-nums; }
 .driver { display: block; min-width: 3px; }
 .driver-legend { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 12px; line-height: 16px; color: var(--fg); }
 .driver-legend li { display: flex; align-items: center; gap: 8px; }
@@ -342,6 +352,7 @@ table.mini tr:last-child td { border-bottom: 0; }
 .d-tools { background: var(--warn); }
 .d-other { background: color-mix(in srgb, var(--warn) 50%, var(--fg) 20%); }
 .d-outputs { background: var(--danger); }
+.d-none { background: color-mix(in srgb, var(--fg) 12%, transparent); }
 
 /* ---------- Help text ---------- */
 .help-groups { display: flex; flex-direction: column; gap: 8px; }
@@ -363,7 +374,7 @@ table.mini tr:last-child td { border-bottom: 0; }
 /* Notes under a plan's costs ("1.8× estimate · approximate") wrap inside their column instead of running under the Delete button. */
 #jobRows td.num .sub-value { white-space: normal; }
 /* Space kept for Spending's totals and filters while it loads (see renderHistory). */
-.tile.placeholder, .chip.placeholder { visibility: hidden; }
+.tile.placeholder, .chip.placeholder, .list-drivers.placeholder { visibility: hidden; }
 .chip.placeholder { display: inline-flex; }
 .chip:disabled { opacity: 0.38; cursor: default; }
 /* The update question stays until answered, with two buttons (Material snackbar actions). */

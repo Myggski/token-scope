@@ -844,6 +844,89 @@ function showTotals(html) {
   tileFrame = requestAnimationFrame(step);
 }
 
+// What the costs of all conversations in the list were made of: the same parts as a conversation's
+// own bar, added up. Conversations whose tool only saves a total (Zed) are a part of their own, so the
+// bar always adds up to the list's cost. The parts stay in place while searching: their bars grow and
+// shrink (CSS) and their amounts count to the new value, so nothing jumps.
+const LIST_PARTS = [
+  { key: "work", label: "The work itself" },
+  { key: "you", label: "Cache expired while waiting for you" },
+  { key: "tools", label: "Cache expired during builds or commands" },
+  { key: "other", label: "Cache expired, cause unknown" },
+  { key: "outputs", label: "Large tool outputs re-read" },
+  { key: "none", label: "No breakdown (the tool saves only totals)" },
+];
+const DRIVER_KEYS = { work: "work", you: "pausesYou", tools: "pausesTools", other: "otherMisses", outputs: "bigOutputs" };
+function listDrivers(list) {
+  const sums = Object.fromEntries(LIST_PARTS.map((p) => [p.key, 0]));
+  for (const c of list) {
+    const d = c.insights && c.insights.drivers;
+    if (!d) {
+      sums.none += c.cost || 0;
+      continue;
+    }
+    for (const [key, field] of Object.entries(DRIVER_KEYS)) sums[key] += d[field] || 0;
+  }
+  return sums;
+}
+
+let driverShown = {}; // amounts on screen per part, for counting from
+let driverFrame = null;
+function showListDrivers(list, all) {
+  const box = $("historyDrivers");
+  box.classList.remove("placeholder");
+  // Which parts: the ones the whole list has, so searching never adds or removes a line.
+  const whole = listDrivers(all), now = listDrivers(list);
+  const parts = LIST_PARTS.filter((p) => whole[p.key] >= 0.005);
+  box.hidden = !parts.length;
+  if (!parts.length) return;
+  const approx = list.some((c) => c.approximate);
+  const total = parts.reduce((s, p) => s + now[p.key], 0);
+  // The total on the right. While searching, everything's total follows in grey brackets, like the boxes above.
+  const everything = parts.reduce((s, p) => s + whole[p.key], 0);
+  const allText = list !== all ? ` (${costText(everything, all.some((c) => c.approximate))})` : "";
+  const key = parts.map((p) => p.key).join(",");
+  if (box.dataset.parts !== key) {
+    box.dataset.parts = key;
+    box.innerHTML = `
+      <div class="list-drivers-head"><span class="tile-label">What the costs below were made of</span><span class="list-total"><span class="list-total-cost"></span><span class="tile-total is-dim list-total-all"></span></span></div>
+      <div class="drivers" role="img">${parts.map((p) => `<span class="driver d-${p.key}" data-part="${p.key}"></span>`).join("")}</div>
+      <ul class="driver-legend">${parts.map((p) => `<li data-part="${p.key}"><span class="swatch d-${p.key}"></span>${escape(p.label)} <strong class="part-cost"></strong> <span class="muted part-share"></span></li>`).join("")}</ul>`;
+  }
+  box.querySelector(".drivers").setAttribute("aria-label", parts.map((p) => `${p.label} ${money(now[p.key])}`).join(", "));
+  for (const p of parts) {
+    const share = total > 0 ? (now[p.key] / total) * 100 : 0;
+    const bar = box.querySelector(`.driver[data-part="${p.key}"]`);
+    bar.style.width = `${share}%`;
+    bar.classList.toggle("is-empty", now[p.key] < 0.005);
+    box.querySelector(`li[data-part="${p.key}"]`).classList.toggle("is-empty", now[p.key] < 0.005);
+  }
+  // The amounts and percentages count to their new values, like the totals above.
+  cancelAnimationFrame(driverFrame);
+  const from = Object.fromEntries(parts.map((p) => [p.key, driverShown[p.key] ?? now[p.key]]));
+  box.querySelector(".list-total-all").textContent = allText;
+  const show = (k) => {
+    const values = Object.fromEntries(parts.map((p) => [p.key, from[p.key] + (now[p.key] - from[p.key]) * k]));
+    const sum = parts.reduce((s, p) => s + values[p.key], 0);
+    box.querySelector(".list-total-cost").textContent = costText(sum, approx);
+    for (const p of parts) {
+      const li = box.querySelector(`li[data-part="${p.key}"]`);
+      li.querySelector(".part-cost").textContent = costText(values[p.key], approx);
+      const pct = sum > 0 ? (values[p.key] / sum) * 100 : 0;
+      li.querySelector(".part-share").textContent = pct > 0 && pct < 0.5 ? "<1%" : `${Math.round(pct)}%`;
+    }
+    driverShown = values;
+  };
+  if (reduceMotion() || parts.every((p) => Math.abs(from[p.key] - now[p.key]) < 0.005)) return show(1);
+  const start = performance.now();
+  const step = (t) => {
+    const x = Math.min(1, (t - start) / 500);
+    show(x === 1 ? 1 : 1 - Math.pow(1 - x, 3));
+    if (x < 1) driverFrame = requestAnimationFrame(step);
+  };
+  driverFrame = requestAnimationFrame(step);
+}
+
 // What the cost was made of, as one bar with named parts. Facts only: suggestions come from the AI.
 function driversBar(c) {
   const d = c.insights.drivers;
@@ -1053,6 +1136,7 @@ function conversationRow(c) {
 // Shown in the table when there's nothing to list, like the Jobs table does.
 function historyEmpty(row) {
   $("historyTotals").hidden = true;
+  $("historyDrivers").hidden = true;
   $("historyRows").innerHTML = row;
   $("historyCount").textContent = "";
   $("historyMore").hidden = true;
@@ -1075,6 +1159,11 @@ function renderHistory() {
     const tiles = 3 + (keep === 0 || keep > 30 ? 1 : 0);
     $("historyTotals").innerHTML = Array.from({ length: tiles }, () =>
       `<div class="tile placeholder" aria-hidden="true"><span class="tile-label">&nbsp;</span><span class="tile-value">&nbsp;</span><span class="tile-hint">&nbsp;</span></div>`).join("");
+    // The breakdown keeps its space too: the last one stays (hidden), or a blank of its size.
+    const drivers = $("historyDrivers");
+    drivers.hidden = false;
+    drivers.classList.add("placeholder");
+    if (!drivers.dataset.parts) drivers.innerHTML = `<div class="list-drivers-head"><span class="tile-label">&nbsp;</span><span class="list-total">&nbsp;</span></div><div class="drivers"></div><ul class="driver-legend"><li>&nbsp;</li></ul>`;
     $("historyRows").innerHTML = `<tr><td colspan="2" class="empty">Loading…</td></tr>`;
     return;
   }
@@ -1091,6 +1180,7 @@ function renderHistory() {
     list = window.ConversationSearch.searchConversations(items, query).map((h) => list[h.index]);
   }
   showTotals(historyTotals(list, all));
+  showListDrivers(list, all);
   const visible = list.slice(0, state.historyShown);
   $("historyRows").innerHTML = visible.length ? visible.map(conversationRow).join("")
     : query ? emptyRow(2, `No conversations match "${query}".`, { attr: "data-clear-history-search", label: "Clear search" })
