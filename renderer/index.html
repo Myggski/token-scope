@@ -188,8 +188,10 @@
             <h3>How does Cheapest work?</h3>
             <p>Sorts models by estimated cost, counting three tokens read for every token written. This is a rough estimate of the balance between reading and writing during coding work.</p>
             <h3>How does Best for the buck work?</h3>
-            <p>It weighs the Capability score and the price equally, so capable models and cheap models both move up. Price counts by ratio, so going from $1 to $2 weighs as much as going from $10 to $20.</p>
-            <p>Models without a score come last, with the newest first. Treat this ranking as a starting point.</p>
+            <p>It weighs capability and price equally. Capability counts by how close a model is to the best one shown, and models 25 points or more behind get no credit for it, so a weak model doesn't rank high just for being cheap. Price counts by ratio, so going from $1 to $2 weighs as much as going from $10 to $20.</p>
+            <p>Models without a score come last, with the newest first.</p>
+            <p>Treat the top few as a shortlist, not one right answer. They're often close, and a small price change can swap them.</p>
+            <p>A cheap price per token isn't always a cheap task. A weaker model can need more steps and more fixing, so try it on real work and compare the costs in Spending. A conversation's Details also show what the same work would have cost on other models.</p>
             <h3>What is the Capability score?</h3>
             <p>It's the Epoch Capabilities Index from Epoch AI, an independent research group. They combine many benchmarks into one number, and a higher number means a more capable model.</p>
             <p>The numbers sit close together, so small gaps matter. Claude Opus 5.5 scores 167 and Claude Haiku 5.5 scores 159, and that's a big difference.</p>

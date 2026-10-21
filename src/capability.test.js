@@ -62,4 +62,22 @@ assert.match(warn((c) => checkMatches(9, 277, 31, c)), /renamed/, "far fewer tha
 assert.match(warn((c) => checkMatches(3, 277, 0, c)), /renamed/, "almost none at all");
 assert.strictEqual(warn((c) => checkMatches(5, 40, 0, c)), "", "a small file: no conclusions");
 
+// Best for the buck: capable and cheap first, a weak model doesn't win on price alone, and models
+// without a score come last, newest first. Prices and scores from a user's list (Oct 21, 2026).
+{
+  const { sortRows } = require("./models");
+  const m = (name, inP, outP, score, created = 1) => ({ id: name, name, inPerM: inP, outPerM: outP, blended: (3 * inP + outP) / 4, created, capability: score == null ? null : { score } });
+  const list = [
+    m("GLM 5.3 Flash", 0.041, 0.12, 153), m("Claude Haiku 5.5", 0.1, 0.5, 159), m("gpt-oss-20b", 0.018, 0.09, 138), m("Qwen3.7 Flash", 0.03, 0.13, 144),
+    m("GPT-6.1 Sol", 2, 10, 168), m("Claude Sonnet 5.5", 2, 10, 164), m("Claude Opus 5.5", 4, 20, 167), m("GPT-6 Astra", 10, 50, 166),
+    m("New model", 0.01, 0.02, null, 3), m("Older new model", 0.01, 0.02, null, 2),
+  ];
+  const order = sortRows(list, "buck").map((x) => x.name);
+  assert.strictEqual(order[0], "Claude Haiku 5.5");
+  assert.ok(order.indexOf("GPT-6.1 Sol") < 3, "the best model is near the top at a fair price");
+  assert.ok(order.indexOf("Claude Sonnet 5.5") < order.indexOf("gpt-oss-20b"), "a much weaker model doesn't beat Sonnet on price alone");
+  assert.ok(order.indexOf("Claude Opus 5.5") < order.indexOf("Qwen3.7 Flash"));
+  assert.deepStrictEqual(order.slice(-2), ["New model", "Older new model"], "no score: last, newest first");
+}
+
 console.log("capability tests passed");

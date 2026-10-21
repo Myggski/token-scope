@@ -4,7 +4,7 @@ const api = window.tokenscope;
 
 const SORTS = ["buck", "cost", "newest", "capable"];
 const SORT_NOTES = {
-  buck: "Capable and cheap models first. Models without a score come last, newest first.",
+  buck: "The most capability for the price first. Models without a score come last, newest first.",
   cost: "Lowest price first, counting 3 tokens read for every token written.",
   newest: "Most recently released first.",
   capable: "Most capable first. Models without a score come last, newest first.",

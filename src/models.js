@@ -41,20 +41,22 @@
     return models;
   }
 
-  // Best for the buck: grades each model with a Capability score (Epoch AI) 0-100 against the others
-  // shown, its score and its price counting equally. Price uses ratios (log), so $0.25 -> $0.50
-  // counts like $5 -> $10. Models without a score get no grade.
+  // Best for the buck: grades each model with a Capability score (Epoch AI) 0-100, its capability
+  // and its price counting equally. Capability counts by how close the model is to the best one
+  // shown: the best gets full credit, one CLOSE_TO_BEST points or more behind gets none, so a weak
+  // model doesn't rank high just for being cheap. Price is compared with the models that get some
+  // capability credit, by ratio (log), so $0.25 -> $0.50 counts like $5 -> $10. Models without a
+  // score get no grade.
+  const CLOSE_TO_BEST = 25;
   function gradeBangForBuck(list) {
-    const spread = (values) => {
-      const min = Math.min(...values);
-      return { min, range: Math.max(...values) - min || 1 };
-    };
-    const logPrice = (m) => Math.log(m.blended || 1e-9);
     const scored = list.filter((m) => m.capability);
-    const cap = spread(scored.map((m) => m.capability.score)), price = spread(scored.map(logPrice));
-    for (const m of list) {
-      m.buck = m.capability ? 100 * (0.5 * (m.capability.score - cap.min) / cap.range + 0.5 * (1 - (logPrice(m) - price.min) / price.range)) : null;
-    }
+    const best = Math.max(...scored.map((m) => m.capability.score));
+    const good = (m) => Math.min(1, Math.max(0, 1 - (best - m.capability.score) / CLOSE_TO_BEST));
+    const logPrice = (m) => Math.log(m.blended || 1e-9);
+    const prices = scored.filter((m) => good(m) > 0).map(logPrice);
+    const cheap = Math.min(...prices), range = Math.max(...prices) - cheap || 1;
+    const cheapness = (m) => Math.min(1, Math.max(0, 1 - (logPrice(m) - cheap) / range));
+    for (const m of list) m.buck = m.capability ? 100 * (0.5 * good(m) + 0.5 * cheapness(m)) : null;
   }
 
   // sort: "buck", "cost", "newest" or "capable". In "buck" and "capable", models without a
