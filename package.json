@@ -1,7 +1,7 @@
 {
   "name": "tokenscope",
   "productName": "TokenScope",
-  "version": "1.0.21",
+  "version": "1.0.22",
   "description": "See what your AI coding costs before and after: estimate tasks, measure what they really cost, and track spending across Claude Code, Codex, Cursor and OpenCode.",
   "keywords": [
     "ai",

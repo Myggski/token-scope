@@ -1059,7 +1059,7 @@ function renderCompare() {
     tone = zero ? "" : r.difference > 0 ? "is-lower" : "is-higher";
   }
   const manualTile = compareTile("Estimate", manualValue, "").replace('<span class="tile-hint"></span>', `<span class="tile-hint">${rate ? `<button class="link-button" type="button" data-set-monthly-cost>${rate}</button> to price it` : escape(manualHint)}</span>`);
-  $("compareTotals").innerHTML = manualTile + compareTile("Using AI", convValue, convHint, "", "Only the tokens are an actual cost. Your time is the measured time in the conversations, priced from the estimated monthly cost.") + compareTile("Difference", diff, diffHint || (rate ? "" : "Needs an estimated time and conversations"), tone);
+  $("compareTotals").innerHTML = manualTile + compareTile("Using AI", convValue, convHint, "", "Only the tokens are an actual cost. Your time is the measured time in the conversations, priced from the estimated monthly cost. Keep in mind that time outside the conversations, like code review, testing or fixing, isn't included.") + compareTile("Difference", diff, diffHint || (rate ? "" : "Needs an estimated time and conversations"), tone);
 
   // Next to the search: how many are picked and what they cost.
   // An input chip (Material 3) that fades and grows in when something's picked, and out when cleared.
