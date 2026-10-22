@@ -12,6 +12,8 @@ const SORT_NOTES = {
 const OTHERS = "Others";
 const FAVORITES = "★ Favorites"; // a chip like the providers, matching the user's starred models
 const MAX_PROVIDER_CHIPS = 8; // plus All, Favorites and Others, this fits one line in the default window
+const INFO_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/></svg>`;
+
 // Comparison's monthly cost until you set your own (USD).
 const DEFAULT_MONTHLY_COST = 6500;
 
@@ -1011,8 +1013,9 @@ function compareRow(c) {
     </tr>`;
 }
 
-function compareTile(label, value, hint, tone = "") {
-  return `<div class="tile${tone ? ` ${tone}` : ""}"><span class="tile-label">${escape(label)}</span><span class="tile-value">${value}</span><span class="tile-hint">${escape(hint)}</span></div>`;
+function compareTile(label, value, hint, tone = "", tip = "") {
+  const info = tip ? ` <span class="info left" tabindex="0" role="img" data-tip="${escape(tip)}">${INFO_ICON}</span>` : "";
+  return `<div class="tile${tone ? ` ${tone}` : ""}"><span class="tile-label">${escape(label)}${info}</span><span class="tile-value">${value}</span><span class="tile-hint">${escape(hint)}</span></div>`;
 }
 
 function renderCompare() {
@@ -1036,12 +1039,12 @@ function renderCompare() {
   const rate = !state.monthlyCost ? "Set a monthly cost" : null;
 
   // On your own (the time you type), your time + AI (measured, plus tokens) and the difference.
-  const manualValue = r.estimate !== null ? money(r.estimate) : "–";
+  const manualValue = r.estimate !== null ? `≈ ${money(r.estimate)}` : "–"; // ≈: priced from estimates
   // The small text shows the calculation, so the numbers can be checked: time × rate, + tokens.
   const perDay = r.hourly !== null ? r.hourly * 8 : null;
   const manualHint = Number.isNaN(typed) ? "Try 2w 3d or 1d 4h" : !estimate ? "Enter an estimated time below"
     : estimate >= 8 ? `${C.formatDuration(estimate)} × ${money(perDay)} a day` : `${C.formatDuration(estimate)} × ${money(r.hourly)} an hour`;
-  const convValue = picked.length ? (r.conversations !== null ? costText(r.conversations, approx) : costText(tokens, approx)) : "–";
+  const convValue = picked.length ? costText(r.conversations !== null ? r.conversations : tokens, approx || r.conversations !== null) : "–";
   const convHint = !picked.length ? "Pick conversations below" : r.timeCost !== null
     ? `Your time (${C.formatDuration(measured)}, ${money(r.timeCost)}) + tokens (${costText(tokens, approx)})`
     : `Tokens (${costText(tokens, approx)})`;
@@ -1051,12 +1054,12 @@ function renderCompare() {
     const zero = Math.abs(r.difference) < 0.005;
     // How far using AI was from the estimate, in money and as a share of the estimate.
     const share = Math.round((Math.abs(r.difference) / r.estimate) * 100);
-    diff = zero ? "$0" : costText(Math.abs(r.difference), approx);
+    diff = zero ? "$0" : costText(Math.abs(r.difference), true);
     diffHint = zero ? "Using AI cost the same as the estimate" : `Using AI cost ${share}% ${r.difference > 0 ? "less" : "more"} than the estimate`;
     tone = zero ? "" : r.difference > 0 ? "is-lower" : "is-higher";
   }
   const manualTile = compareTile("Estimate", manualValue, "").replace('<span class="tile-hint"></span>', `<span class="tile-hint">${rate ? `<button class="link-button" type="button" data-set-monthly-cost>${rate}</button> to price it` : escape(manualHint)}</span>`);
-  $("compareTotals").innerHTML = manualTile + compareTile("Using AI", convValue, convHint) + compareTile("Difference", diff, diffHint || (rate ? "" : "Needs an estimated time and conversations"), tone);
+  $("compareTotals").innerHTML = manualTile + compareTile("Using AI", convValue, convHint, "", "Only the tokens are an actual cost. Your time is the measured time in the conversations, priced from the estimated monthly cost.") + compareTile("Difference", diff, diffHint || (rate ? "" : "Needs an estimated time and conversations"), tone);
 
   // Next to the search: how many are picked and what they cost.
   // An input chip (Material 3) that fades and grows in when something's picked, and out when cleared.

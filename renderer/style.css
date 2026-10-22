@@ -267,6 +267,8 @@ table.mini tr:last-child td { border-bottom: 0; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 8px; }
 .tile { display: flex; flex-direction: column; gap: 4px; padding: 12px; border: 1px solid var(--line); border-radius: var(--shape-m); }
 .tile.current { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.tile-label .info { height: 16px; vertical-align: top; }
+.tile-label .info svg { width: 16px; height: 16px; }
 .tile-label { font-size: 12px; line-height: 16px; font-weight: 500; color: var(--muted); }
 .tile.current .tile-label { color: var(--fg); }
 .tile-match { display: inline-block; font-variant-numeric: tabular-nums; transition: opacity 0.3s 0.15s; }
