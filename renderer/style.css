@@ -98,6 +98,17 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .chip.radio[aria-checked="true"]::before { background: currentColor; box-shadow: inset 0 0 0 3px var(--accent); }
 .chip.radio:not([aria-checked="true"]):hover { border-color: var(--fg); color: var(--fg); background: var(--hover); }
 .chip.preset { padding: 0 12px; }
+/* Input chip (Material 3): a label with a trailing remove icon. Used for Comparison's picked conversations. */
+.input-chip { padding: 0 4px 0 12px; gap: 4px; color: var(--fg); cursor: default; }
+.input-chip::after { content: none; }
+.chip-remove { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
+.chip-remove::after { content: ""; position: absolute; inset: -8px; }
+.chip-remove svg { width: 18px; height: 18px; fill: currentColor; }
+.chip-remove:hover { color: var(--fg); background: var(--hover); }
+.input-chip.entering { animation: chip-in .2s cubic-bezier(0.05, 0.7, 0.1, 1); }
+.input-chip.leaving { animation: chip-out .15s cubic-bezier(0.3, 0, 0.8, 0.15) forwards; }
+@keyframes chip-in { from { opacity: 0; transform: scale(.85); } }
+@keyframes chip-out { to { opacity: 0; transform: scale(.85); } }
 
 /* ---------- Models view ---------- */
 .fav-col { width: 1px; padding-inline: 0 4px; }

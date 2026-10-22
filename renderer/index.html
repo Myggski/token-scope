@@ -144,17 +144,21 @@
     <div id="view-compare" class="view" role="tabpanel" aria-labelledby="tab-compare" hidden>
       <section id="compareOn">
         <h2 class="visually-hidden">Comparison</h2>
-        <p class="intro">Compare the cost of a task done by hand with the cost of doing it with AI. Enter how long it would take by hand, then pick the AI conversations used for it. Both are priced from the same monthly cost.</p>
+        <p class="intro">Compare the cost of doing a task on your own with doing it with AI. Enter how long it would take you on your own, then pick the AI conversations used for it.</p>
         <div id="compareTotals" class="tiles totals"></div>
         <div class="control-row compare-time-row">
           <div class="min">
             <label for="estimate">Estimated time</label>
-            <span class="info left" tabindex="0" role="img" data-tip="How long the task would take done by hand, as manual work. Type weeks, days, hours and minutes, like 2w 3d, 1d 4h or 90m. A week is 40 hours and a day is 8."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/></svg></span>
+            <span class="info left" tabindex="0" role="img" data-tip="How long the task would take you on your own, without AI. Type weeks, days, hours and minutes, like 2w 3d, 1d 4h or 90m. A week is 40 hours and a day is 8."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/></svg></span>
             <input id="estimate" type="text" placeholder="2w 3d" spellcheck="false" autocomplete="off">
           </div>
         </div>
         <div class="control-row compare-search-row">
           <input id="compareSearch" class="search" type="search" placeholder="Search conversations" aria-label="Search conversations" spellcheck="false" autocomplete="off">
+          <span id="comparePickedChip" class="chip input-chip" hidden>
+            <span id="comparePicked" aria-live="polite"></span>
+            <button id="compareUnpick" class="chip-remove" type="button" aria-label="Clear picked conversations" title="Clear picked"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+          </span>
         </div>
         <div class="tablebox">
           <table class="compact compare-table">
@@ -209,7 +213,7 @@
       <section class="your-data" aria-labelledby="compareSettingsTitle">
         <h2 id="compareSettingsTitle">Comparison</h2>
         <ul class="data-actions">
-          <li><div><strong><label for="monthlyCost">Monthly cost</label></strong><span>An estimate of what a month of one person's work costs, in USD like the token costs. Comparison uses it to put a price on time.</span></div>
+          <li><div><strong><label for="monthlyCost">Monthly cost</label></strong><span>An estimate of what a month of one person's work costs, in USD like the token costs. Comparison uses it to put a price on time. It's $6,500 until you change it.</span></div>
             <span class="money-field"><input id="monthlyCost" type="text" inputmode="decimal" placeholder="6500" spellcheck="false" autocomplete="off"> USD</span></li>
         </ul>
       </section>
@@ -325,13 +329,13 @@
           </div>
         </details>
         <details class="connect help-group" id="help-compare">
-          <summary><h2>Comparison</h2><span class="summary-hint">How a task done by hand is compared with doing it with AI</span></summary>
+          <summary><h2>Comparison</h2><span class="summary-hint">How doing a task on your own is compared with doing it with AI</span></summary>
           <div class="notes help-body">
             <p>The Comparison tab is hidden at first. Turn it on under Tabs.</p>
             <h3>How is it worked out?</h3>
-            <p>Manual work is the estimated time you enter, priced from the monthly cost you set under Settings &amp; help. A month counts as 160 hours of work, a week as 40 and a day as 8.</p>
-            <p>AI conversations are the time the conversations took, priced the same way, plus what their tokens cost.</p>
-            <p>Using AI shows how much more or less the task cost with AI than by hand. It's green when it cost less and red when it cost more.</p>
+            <p>Estimate is how long the task would take you on your own, as the time you enter, priced from the monthly cost under Settings &amp; help. A month counts as 160 hours of work, so a day is a twentieth of the monthly cost. A week is 40 hours and a day is 8.</p>
+            <p>Using AI is your time in the conversations you picked, priced the same way, plus what their tokens cost. Your time counts on both sides, so the comparison is fair.</p>
+            <p>Difference shows how far apart the two are, and how much more or less using AI cost than the estimate. It's green when using AI cost less and red when it cost more.</p>
             <h3>How is the conversations' time measured?</h3>
             <p>From the first message to the last reply of each conversation you picked. Conversations that ran at the same time count once.</p>
             <p>Time spent outside the conversations isn't included, like reviewing, testing or fixing the result afterwards. A conversation you came back to the next day includes the time in between.</p>

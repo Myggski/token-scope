@@ -12,12 +12,15 @@ const SORT_NOTES = {
 const OTHERS = "Others";
 const FAVORITES = "★ Favorites"; // a chip like the providers, matching the user's starred models
 const MAX_PROVIDER_CHIPS = 8; // plus All, Favorites and Others, this fits one line in the default window
+// Comparison's monthly cost until you set your own (USD).
+const DEFAULT_MONTHLY_COST = 6500;
+
 // The tabs you can move and hide (Settings & help is always last, so you can always get back).
 const TABS = [
   { id: "models", name: "Models", note: "Prices and capability scores for AI models." },
   { id: "jobs", name: "Plans", note: "What your AI estimated a task would cost, next to what it really cost." },
   { id: "history", name: "Spending", note: "What each AI conversation cost, and what made up the cost." },
-  { id: "compare", name: "Comparison", note: "The cost of a task done by hand next to the cost of doing it with AI." },
+  { id: "compare", name: "Comparison", note: "The cost of doing a task on your own next to doing it with AI." },
 ];
 // Comparison starts hidden: turn it on under Tabs.
 const DEFAULT_TABS = { order: TABS.map((t) => t.id), hidden: ["compare"] };
@@ -51,7 +54,7 @@ const state = {
   compareSearch: "",
   compareShown: PAGE,
   compareEstimate: "", // the estimated time as typed
-  monthlyCost: null, // USD, roughly what a month of one person's work costs, remembered
+  monthlyCost: 6500, // USD, roughly what a month of one person's work costs, remembered (6500 until changed)
   historySearch: "", // Spending's search (not remembered between launches)
   openConversations: new Set(),
   subagentsShown: new Map(), // conversation id -> how many subagent rows its Details show
@@ -1032,25 +1035,52 @@ function renderCompare() {
   const r = C.compare({ monthlyCost: state.monthlyCost, estimateHours: estimate, measuredHours: picked.length ? measured : null, tokens });
   const rate = !state.monthlyCost ? "Set a monthly cost" : null;
 
-  // Manual work (the time you type, in its box), the AI conversations (measured) and the difference.
+  // On your own (the time you type), your time + AI (measured, plus tokens) and the difference.
   const manualValue = r.estimate !== null ? money(r.estimate) : "–";
-  const manualHint = Number.isNaN(typed) ? "Try 2w 3d or 1d 4h" : !estimate ? "Enter an estimated time below" : `${C.formatDuration(estimate)} at ${money(state.monthlyCost)} a month`;
+  // The small text shows the calculation, so the numbers can be checked: time × rate, + tokens.
+  const perDay = r.hourly !== null ? r.hourly * 8 : null;
+  const manualHint = Number.isNaN(typed) ? "Try 2w 3d or 1d 4h" : !estimate ? "Enter an estimated time below"
+    : estimate >= 8 ? `${C.formatDuration(estimate)} × ${money(perDay)} a day` : `${C.formatDuration(estimate)} × ${money(r.hourly)} an hour`;
   const convValue = picked.length ? (r.conversations !== null ? costText(r.conversations, approx) : costText(tokens, approx)) : "–";
-  const count = `${picked.length} conversation${picked.length === 1 ? "" : "s"}`;
-  const convHint = !picked.length ? "Pick conversations below" : state.monthlyCost
-    ? `${count} · ${C.formatDuration(measured)} · ${costText(tokens, approx)} in tokens`
-    : `${count} · ${costText(tokens, approx)} in tokens`;
+  const convHint = !picked.length ? "Pick conversations below" : r.timeCost !== null
+    ? `Your time (${C.formatDuration(measured)}, ${money(r.timeCost)}) + tokens (${costText(tokens, approx)})`
+    : `Tokens (${costText(tokens, approx)})`;
   let diff = "–", diffHint = "", tone = "";
-  // What using AI cost compared with doing it by hand, more or less. Said the same way in both directions.
+  // What using AI cost compared with doing it on your own, more or less. Said the same way in both directions.
   if (r.difference !== null && picked.length) {
     const zero = Math.abs(r.difference) < 0.005;
-    diff = zero ? "The same" : `${costText(Math.abs(r.difference), approx)} ${r.difference > 0 ? "less" : "more"}`;
-    diffHint = "than doing it by hand";
+    // How far using AI was from the estimate, in money and as a share of the estimate.
+    const share = Math.round((Math.abs(r.difference) / r.estimate) * 100);
+    diff = zero ? "$0" : costText(Math.abs(r.difference), approx);
+    diffHint = zero ? "Using AI cost the same as the estimate" : `Using AI cost ${share}% ${r.difference > 0 ? "less" : "more"} than the estimate`;
     tone = zero ? "" : r.difference > 0 ? "is-lower" : "is-higher";
   }
-  const manualTile = compareTile("Manual work", manualValue, "").replace('<span class="tile-hint"></span>', `<span class="tile-hint">${rate ? `<button class="link-button" type="button" data-set-monthly-cost>${rate}</button> to price it` : escape(manualHint)}</span>`);
-  $("compareTotals").innerHTML = manualTile + compareTile("AI conversations", convValue, convHint) + compareTile("Using AI", diff, diffHint || (rate ? "" : "Needs an estimated time and conversations"), tone);
+  const manualTile = compareTile("Estimate", manualValue, "").replace('<span class="tile-hint"></span>', `<span class="tile-hint">${rate ? `<button class="link-button" type="button" data-set-monthly-cost>${rate}</button> to price it` : escape(manualHint)}</span>`);
+  $("compareTotals").innerHTML = manualTile + compareTile("Using AI", convValue, convHint) + compareTile("Difference", diff, diffHint || (rate ? "" : "Needs an estimated time and conversations"), tone);
 
+  // Next to the search: how many are picked and what they cost.
+  // An input chip (Material 3) that fades and grows in when something's picked, and out when cleared.
+  // It's at the end of the row, so nothing else moves.
+  const chip = $("comparePickedChip");
+  if (picked.length) {
+    $("comparePicked").textContent = `${picked.length} picked · ${costText(tokens, approx)}`;
+    if (chip.hidden || chip.classList.contains("leaving")) {
+      chip.classList.remove("leaving");
+      chip.hidden = false;
+      replay(chip, "entering");
+    }
+  } else if (!chip.hidden && !chip.classList.contains("leaving")) {
+    chip.classList.remove("entering");
+    chip.classList.add("leaving");
+    const done = () => {
+      if (chip.classList.contains("leaving")) {
+        chip.hidden = true;
+        chip.classList.remove("leaving");
+      }
+    };
+    chip.addEventListener("animationend", done, { once: true });
+    if (reduceMotion()) done();
+  }
   // The header box: shows that some are picked, and clears them.
   $("compareClear").setAttribute("aria-checked", picked.length ? "mixed" : "false");
   $("compareClear").disabled = !picked.length;
@@ -1595,6 +1625,11 @@ document.addEventListener("click", (event) => {
   $("monthlyCost").scrollIntoView({ block: "center" });
   $("monthlyCost").focus();
 });
+$("compareUnpick").addEventListener("click", () => {
+  state.comparePicked.clear();
+  renderCompare();
+  $("compareSearch").focus();
+});
 $("compareClear").addEventListener("click", () => {
   state.comparePicked.clear();
   renderCompare();
@@ -1619,9 +1654,12 @@ $("monthlyCost").addEventListener("input", () => {
   const value = parseNumber($("monthlyCost").value);
   markInvalid($("monthlyCost"), value);
   if (Number.isNaN(value)) return;
-  state.monthlyCost = value || null;
-  save("monthlyCost", state.monthlyCost);
+  state.monthlyCost = value || DEFAULT_MONTHLY_COST; // empty: back to the default
+  save("monthlyCost", value || null);
   renderCompare();
+});
+$("monthlyCost").addEventListener("blur", () => {
+  if (!parseNumber($("monthlyCost").value)) $("monthlyCost").value = String(state.monthlyCost);
 });
 
 $("historyMore").addEventListener("click", () => {
@@ -1866,8 +1904,8 @@ function applyStore(data) {
   state.theme = s.theme === "light" ? "light" : "dark";
   state.tabs = readTabs(s.tabs);
   applyTabs();
-  state.monthlyCost = Number(s.monthlyCost) > 0 ? Number(s.monthlyCost) : null;
-  $("monthlyCost").value = state.monthlyCost ? String(state.monthlyCost) : "";
+  state.monthlyCost = Number(s.monthlyCost) > 0 ? Number(s.monthlyCost) : DEFAULT_MONTHLY_COST;
+  $("monthlyCost").value = String(state.monthlyCost);
   $("search").value = state.search;
   $("tokens").value = state.tokensText;
   applyTheme();

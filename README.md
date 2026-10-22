@@ -15,7 +15,7 @@ The app shows facts only. The suggestions come from your AI.
 - **Models:** current prices for every model on [OpenRouter](https://openrouter.ai/models), with sorting, filters and favorites, and a capability score from [Epoch AI](https://epoch.ai/benchmarks/eci) for the models it has tested.
 - **Plans:** what a task will cost before your AI starts it, with a range and a breakdown per phase, next to what it really cost.
 - **Spending:** what each AI conversation cost and what made up the cost, like cache that expired or large outputs that got re-read. Search by name, tool, project or model, and see what any conversation would have cost on another model.
-- **Comparison:** the cost of a task done by hand next to the cost of doing it with AI, both priced from an estimated monthly cost. It compares cost only, not quality. Hidden at first: turn it on under **Settings & help → Tabs**.
+- **Comparison:** the cost of doing a task on your own next to doing it with AI, with your time on both sides priced from an estimated monthly cost. It compares cost only, not quality. Hidden at first: turn it on under **Settings & help → Tabs**.
 
 | | Plans: estimates | Plans: real costs | Spending |
 | --- | --- | --- | --- |
