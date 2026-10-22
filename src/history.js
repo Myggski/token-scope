@@ -312,6 +312,47 @@ function openCodeMessage(row, data) {
   };
 }
 
+// When you wrote, from a user message: why the cache expired (see openCodeTimeline). Only the time
+// and session are kept, never the text.
+function openCodeUser(row, data) {
+  if (!data) return null;
+  if ((data.role || row.role || row.type) !== "user") return null;
+  const created = (data.time && (data.time.created || data.time.start)) || row.time_created || row.created_at || null;
+  const t = typeof created === "number" ? created : Date.parse(created);
+  const session = data.sessionID || data.session_id || row.session_id || row.sessionID || null;
+  return session && Number.isFinite(t) ? { session, t } : null;
+}
+
+// A tool the AI ran, from a part: when it ran, what kind it was and how big its output was. Never the
+// command or the output itself, only the kind (edit, read, build, test, other) and the file.
+function openCodeTool(row, data) {
+  if (!data || (data.type || row.type) !== "tool") return null;
+  const state = data.state || {};
+  const time = state.time || {};
+  const start = Number(time.start), end = Number(time.end);
+  const session = data.sessionID || data.session_id || row.session_id || row.sessionID || null;
+  if (!session || !Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+  const input = state.input || {};
+  const name = String(data.tool || "");
+  const kind = /^(edit|write|patch|multiedit)$/i.test(name) ? "edit" : /^read$/i.test(name) ? "read"
+    : /^(bash|shell|powershell)$/i.test(name) ? commandKind(input.command) : "other";
+  const output = typeof state.output === "string" ? state.output.length : 0;
+  return { id: data.id || row.id || `${session}|${start}|${name}`, session, start, t: end, ms: end - start, kind, tool: name, file: input.filePath || input.file_path || null, outTokens: Math.round(output / 4) };
+}
+
+// Why the cache expired before each reply: you writing, or a tool running, like Claude Code's timeline.
+function openCodeTimeline(ordered, users, tools) {
+  return ordered.map((m, i) => {
+    if (!i) return null;
+    const prev = ordered[i - 1].time, t = m.time;
+    const lastHuman = users.reduce((last, u) => (u > prev && u <= t && u > last ? u : last), 0);
+    const longest = tools.filter((x) => x.t > prev && x.t <= t).sort((a, b) => b.ms - a.ms)[0];
+    if (lastHuman) return { ms: lastHuman - prev, who: "you", kind: null };
+    if (longest) return { ms: longest.ms, who: "tool", kind: longest.kind };
+    return { ms: t - prev, who: "unknown", kind: null };
+  });
+}
+
 function tableRows(db, table) {
   try {
     const result = db.exec(`SELECT * FROM "${table}"`);
@@ -347,6 +388,7 @@ async function loadOpenCode(folder, since, checks = NO_CHECKS) {
   const messages = new Map(); // id -> message, so the same message stored twice counts once
   const sessions = new Map(); // id -> { title, cwd }
   const rawMarks = []; // [raw text, data, row] to look at once message times are known
+  const users = [], tools = []; // when you wrote, and the tools the AI ran (see openCodeTimeline)
   const all = [];
   const add = (m) => {
     if (!m || !m.id) return;
@@ -357,7 +399,7 @@ async function loadOpenCode(folder, since, checks = NO_CHECKS) {
   try {
     names = fs.readdirSync(folder);
   } catch {
-    return { messages, sessions, marks: [], found: false };
+    return { messages, sessions, marks: [], users: [], tools: [], found: false };
   }
   // Databases: 2.x tables (session_v2, session_message) and the older ones (session, message, part).
   const databases = names.filter((n) => /^opencode.*\.db$/.test(n));
@@ -376,13 +418,18 @@ async function loadOpenCode(folder, since, checks = NO_CHECKS) {
       if (rows === null) continue;
       knownTables++;
       for (const row of rows) {
-        add(openCodeMessage(row, asJson(row.data) || row));
+        const data = asJson(row.data) || row;
+        add(openCodeMessage(row, data));
+        const user = openCodeUser(row, data);
+        if (user) users.push(user);
         if (typeof row.data === "string" && row.data.includes("job_id")) rawMarks.push([row.data, asJson(row.data), row]);
       }
     }
     for (const table of ["part", "session_part", "message_part"]) {
       for (const row of tableRows(db, table) || []) {
         if (typeof row.data === "string" && row.data.includes("job_id")) rawMarks.push([row.data, asJson(row.data), row]);
+        const tool = openCodeTool(row, asJson(row.data) || row);
+        if (tool) tools.push(tool);
       }
     }
     for (const table of ["session_v2", "session"]) {
@@ -415,7 +462,10 @@ async function loadOpenCode(folder, since, checks = NO_CHECKS) {
     try {
       if (fs.statSync(file).mtimeMs < since) return;
       jsonMessages++;
-      add(openCodeMessage({}, asJson(fs.readFileSync(file, "utf8"))));
+      const data = asJson(fs.readFileSync(file, "utf8"));
+      add(openCodeMessage({}, data));
+      const user = openCodeUser({}, data);
+      if (user) users.push(user);
     } catch {}
   });
   walk(path.join(storage, "part"), 2, (file) => {
@@ -423,6 +473,10 @@ async function loadOpenCode(folder, since, checks = NO_CHECKS) {
       if (fs.statSync(file).mtimeMs < since) return;
       const raw = fs.readFileSync(file, "utf8");
       if (raw.includes("job_id")) rawMarks.push([raw, asJson(raw), null]);
+      if (raw.includes('"tool"')) {
+        const tool = openCodeTool({}, asJson(raw));
+        if (tool) tools.push(tool);
+      }
     } catch {}
   });
   walk(path.join(storage, "session"), 3, (file) => {
@@ -434,17 +488,23 @@ async function loadOpenCode(folder, since, checks = NO_CHECKS) {
   if (all.length >= 5 && share(all, (m) => m.hasTokens) < 0.5) checks.mismatch("opencode", "Its replies no longer have token counts where expected, so OpenCode costs are missing or too low.");
   const timeOf = (id) => (id && messages.has(id) ? messages.get(id).time : null);
   const marks = rawMarks.flatMap(([raw, data, row]) => jobMarksIn(raw, data, row, timeOf));
-  return { messages, sessions, marks, found: true };
+  return { messages, sessions, marks, users, tools, found: true };
 }
 
 // All OpenCode folders together.
 async function loadAllOpenCode(folders, since, checks) {
   const messages = new Map(), sessions = new Map(), marks = [];
+  const users = new Map(), tools = new Map(); // per session: times you wrote; tools by id
   for (const folder of folders) {
     const part = await loadOpenCode(folder, since, checks);
     for (const [id, m] of part.messages) if (!messages.has(id)) messages.set(id, m);
     for (const [id, info] of part.sessions) if (!sessions.has(id)) sessions.set(id, info);
     marks.push(...part.marks);
+    for (const u of part.users) {
+      if (!users.has(u.session)) users.set(u.session, new Set());
+      users.get(u.session).add(u.t);
+    }
+    for (const x of part.tools) if (!tools.has(x.id)) tools.set(x.id, x);
   }
   const all = [...messages.values()];
   const before = new Set(all.map((m) => m.session));
@@ -455,7 +515,12 @@ async function loadAllOpenCode(folders, since, checks) {
   const counts = (list) => list.reduce((m, x) => m.set(x.session, (m.get(x.session) || 0) + 1), new Map());
   const had = counts(all), kept = counts([...messages.values()]);
   const forks = new Set([...had].filter(([id, n]) => (kept.get(id) || 0) < n).map(([id]) => id));
-  return { messages, sessions, marks, copyOnly, forks };
+  const toolsBySession = new Map();
+  for (const x of tools.values()) {
+    if (!toolsBySession.has(x.session)) toolsBySession.set(x.session, []);
+    toolsBySession.get(x.session).push(x);
+  }
+  return { messages, sessions, marks, copyOnly, forks, users, tools: toolsBySession };
 }
 
 // A fork (/fork in OpenCode) starts a new session with a copy of the conversation so far. The copied
@@ -540,7 +605,7 @@ const openCodePrint = (m) => `oc|${m.time}|${m.model}|${m.tokens.input}|${m.toke
 // savedOwners: fingerprint -> the conversation that counted it, from TokenScope's saved summaries. If
 // you deleted that conversation in OpenCode, a fork still has copies of its replies; they don't count again.
 async function readOpenCode(models, since, { folder, checks = NO_CHECKS, savedOwners = new Map() } = {}) {
-  const { messages, sessions, marks, copyOnly, forks } = await loadAllOpenCode(folder ? [folder] : openCodeFolders(), since, checks);
+  const { messages, sessions, marks, copyOnly, forks, users, tools } = await loadAllOpenCode(folder ? [folder] : openCodeFolders(), since, checks);
   const jobsBySession = new Map();
   for (const mark of marks) {
     if (!jobsBySession.has(mark.session)) jobsBySession.set(mark.session, new Set());
@@ -614,11 +679,19 @@ async function readOpenCode(models, since, { folder, checks = NO_CHECKS, savedOw
     const priced = summarize(byModel, models, own);
     if (!priced.models.length) continue;
     const ordered = [...list].sort((a, b) => a.time - b.time);
+    // The tools this conversation ran after its first own reply (a fork's copied ones belong to the
+    // original), each after the reply that asked for it.
+    const ran = (tools.get(id) || []).filter((x) => x.start >= ordered[0].time).map((x) => {
+      let after = 0;
+      while (after + 1 < ordered.length && ordered[after + 1].time <= x.start) after++;
+      return { ...x, after };
+    });
+    const pauses = openCodeTimeline(ordered, [...(users.get(id) || [])], ran);
     const requests = ordered.map((m, i) => {
       const p = findPricedModel(models, m.model);
       const usage = { requests: 1, input: m.tokens.input, cacheRead: m.tokens.read, write5m: m.tokens.write, write1h: 0, output: m.tokens.output };
       return {
-        t: m.time, model: p, pause: i ? { ms: m.time - ordered[i - 1].time, who: "unknown", kind: null } : null,
+        t: m.time, model: p, pause: pauses[i],
         context: m.tokens.input + m.tokens.read + m.tokens.write, fresh: m.tokens.input + m.tokens.write, cached: m.tokens.read,
         output: m.tokens.output, cost: p ? usageCost(p, usage) : m.cost || 0,
       };
@@ -631,7 +704,7 @@ async function readOpenCode(models, since, { folder, checks = NO_CHECKS, savedOw
       ...(helpers.length ? { helpers: helperList, includes: helpers.map((h) => `opencode:${h}`) } : {}),
       // Kept in the saved summary (see savedOwners above).
       replyIds: [...list, ...helpers.flatMap((h) => bySession.get(h))].map(openCodePrint),
-      insights: analyze({ requests, tools: [], cacheMinutes: 5, helperCost, total: priced.cost }),
+      insights: analyze({ requests, tools: ran, cacheMinutes: 5, helperCost, total: priced.cost }),
     });
   }
   // Forks that still exist but have nothing of their own yet: everything in them is a copy, already

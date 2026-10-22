@@ -324,6 +324,42 @@ const T = Date.UTC(2026, 9, 1, 10, 0);
   console.log("opencode subagent model tests passed");
 })().catch((e) => { console.error(e); process.exit(1); });
 
+// OpenCode: why the cache expired, from when you wrote and which tools ran (like Claude Code).
+(async () => {
+  const { readOpenCode } = require("./history");
+  const SQL = await require("sql.js")({ locateFile: (f) => path.join(path.dirname(require.resolve("sql.js")), f) });
+  const oc = fs.mkdtempSync(path.join(os.tmpdir(), "ts-oc-why-"));
+  const T0 = Date.UTC(2026, 9, 22, 9, 0), min = 60e3;
+  const db = new SQL.Database();
+  db.run("CREATE TABLE session (id TEXT, title TEXT, directory TEXT)");
+  db.run("CREATE TABLE message (id TEXT, session_id TEXT, data TEXT)");
+  db.run("CREATE TABLE part (id TEXT, message_id TEXT, session_id TEXT, data TEXT)");
+  db.run("INSERT INTO session VALUES ('s', 'Quest desync', '/work/game')");
+  const reply = (id, t, input) => db.run("INSERT INTO message VALUES (?, 's', ?)", [id, JSON.stringify({ id, sessionID: "s", role: "assistant", modelID: "claude-sonnet-5-5", tokens: { input, output: 100, reasoning: 0, cache: { read: 0, write: 0 } }, time: { created: t } })]);
+  const user = (id, t) => db.run("INSERT INTO message VALUES (?, 's', ?)", [id, JSON.stringify({ id, sessionID: "s", role: "user", time: { created: t } })]);
+  const tool = (id, msg, tool, input, start, end, output = "ok") => db.run("INSERT INTO part VALUES (?, ?, 's', ?)", [id, msg, JSON.stringify({ id, sessionID: "s", messageID: msg, type: "tool", tool, state: { status: "completed", input, output, time: { start, end } } })]);
+  user("u1", T0 - min);
+  reply("r1", T0, 50000);
+  tool("p1", "r1", "bash", { command: "npm run build" }, T0 + 10e3, T0 + 10 * min, "x".repeat(40000)); // a 10 min build, big output
+  reply("r2", T0 + 10 * min + 1e3, 52000); // the cache expired during the build
+  user("u2", T0 + 30 * min);
+  reply("r3", T0 + 31 * min, 54000); // ... while waiting for you
+  reply("r4", T0 + 50 * min, 56000); // ... for no visible reason
+  fs.writeFileSync(path.join(oc, "opencode.db"), Buffer.from(db.export()));
+  const models = [{ id: "anthropic/claude-sonnet-5.5", inPerM: 2, outPerM: 10, cachedPerM: 0.2, cacheWritePerM: 2.5 }];
+  const [c] = await readOpenCode(models, 0, { folder: oc });
+  const d = c.insights.drivers;
+  assert.ok(d.pausesTools > 0, "a build running");
+  assert.ok(d.pausesYou > 0, "waiting for you");
+  assert.ok(d.otherMisses > 0, "and unknown only when nothing explains it");
+  assert.deepStrictEqual(c.insights.facts.cacheExpiries.map((e) => e.during), ["build", "user's reply", "unknown"]);
+  assert.deepStrictEqual(c.insights.facts.toolUse, { edits: 0, reads: 0, builds: 1, tests: 0, other: 0 });
+  assert.ok(d.bigOutputs > 0 && c.insights.facts.largeOutputs[0].tokens === 10000, "a large tool output re-read by later replies");
+  assert.ok(!JSON.stringify(c).includes("npm run build"), "the command itself isn't kept");
+  fs.rmSync(oc, { recursive: true, force: true });
+  console.log("opencode cache expiry cause tests passed");
+})().catch((e) => { console.error(e); process.exit(1); });
+
 // Several forks: two forks of one original, a fork of a fork, and the original continued afterwards.
 // Every reply counts once, where it happened. With and without OpenCode's fork link.
 {
