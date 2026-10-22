@@ -147,6 +147,17 @@ async function loadModels() {
   return data;
 }
 
+// Prices for reading conversations before the live ones have loaded (Spending is read right at
+// start): the last saved copy, else the one shipped with the app. Without prices, cache misses
+// can't be priced and a conversation's whole cost shows as the work itself.
+function pricesForNow() {
+  if (currentModels.length) return currentModels;
+  const saved = readJson(userFile("openrouter-cache.json"));
+  if (saved && Array.isArray(saved.models) && saved.models.length) return saved.models;
+  const snapshot = readJson(path.join(__dirname, "data", "openrouter-snapshot.json"));
+  return snapshot ? parseOpenRouter(snapshot) : [];
+}
+
 // Where the MCP program lives. From source it runs in place. An installed app keeps its files inside
 // a package (and the portable .exe unpacks to a new temp folder each time), so they're copied
 // to the data folder, which never moves.
@@ -230,6 +241,7 @@ async function setTracking(id, enabled) {
 // Every tracked conversation within `days` (default: the kept period), newest first, plus any
 // format problems found while reading.
 async function historyList(days = keepDays()) {
+  const currentModels = pricesForNow();
   const on = tracking();
   const since = days > 0 ? Date.now() - days * 86400e3 : 0;
   const checks = createChecks();
