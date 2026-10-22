@@ -12,7 +12,17 @@ const SORT_NOTES = {
 const OTHERS = "Others";
 const FAVORITES = "★ Favorites"; // a chip like the providers, matching the user's starred models
 const MAX_PROVIDER_CHIPS = 8; // plus All, Favorites and Others, this fits one line in the default window
-const VIEWS = ["models", "jobs", "history", "help"];
+// The tabs you can move and hide (Settings & help is always last, so you can always get back).
+const TABS = [
+  { id: "models", name: "Models", note: "Prices and capability scores for AI models." },
+  { id: "jobs", name: "Plans", note: "What your AI estimated a task would cost, next to what it really cost." },
+  { id: "history", name: "Spending", note: "What each AI conversation cost, and what made up the cost." },
+  { id: "compare", name: "Comparison", note: "The cost of a task done by hand next to the cost of doing it with AI." },
+];
+// Comparison starts hidden: turn it on under Tabs.
+const DEFAULT_TABS = { order: TABS.map((t) => t.id), hidden: ["compare"] };
+// The tabs shown, in order, then Settings & help.
+const visibleViews = () => [...state.tabs.order.filter((v) => !state.tabs.hidden.includes(v)), "help"];
 const PAGE = 20; // models shown at first, and added by each "Show more"
 const PAGE_SMALL = 5; // rows shown at first in a Details list (subagents)
 
@@ -29,6 +39,7 @@ const state = {
   search: "",
   theme: "dark",
   view: "models",
+  tabs: DEFAULT_TABS,
   shown: PAGE, // how many models the list shows right now
   aiTool: null, // whose setup steps are open in Connect your AI tool; none at the start, not remembered
   openJobs: new Set(), // jobs whose Details are open, kept open when the list redraws
@@ -36,6 +47,11 @@ const state = {
   sources: [], // the AI tools TokenScope can track, and whether they're on
   compareModels: null, // models a conversation is re-priced on in Spending; null = your favorites
   historyShown: PAGE,
+  comparePicked: new Set(), // Comparison: the conversations picked (ids), for this session
+  compareSearch: "",
+  compareShown: PAGE,
+  compareEstimate: "", // the estimated time as typed
+  monthlyCost: null, // USD, roughly what a month of one person's work costs, remembered
   historySearch: "", // Spending's search (not remembered between launches)
   openConversations: new Set(),
   subagentsShown: new Map(), // conversation id -> how many subagent rows its Details show
@@ -430,15 +446,55 @@ function renderAll() {
 }
 
 function showView(view, { animate = false } = {}) {
+  if (!visibleViews().includes(view)) view = visibleViews()[0];
   state.view = view;
-  for (const v of VIEWS) {
+  for (const v of [...TABS.map((t) => t.id), "help"]) {
     $(`view-${v}`).hidden = v !== view;
     $(`tab-${v}`).setAttribute("aria-selected", v === view);
     $(`tab-${v}`).tabIndex = v === view ? 0 : -1;
   }
   moveTabIndicator();
   if (animate) replay($(`view-${view}`), "view-in");
-  if (view === "history") loadHistory();
+  if (view === "history" || view === "compare") loadHistory();
+}
+
+// Puts the tabs in your order and hides the ones you've turned off, here and in Settings & help.
+function applyTabs() {
+  const nav = document.querySelector(".tabs");
+  for (const v of [...state.tabs.order, "help"]) nav.insertBefore($(`tab-${v}`), $("tabIndicator"));
+  for (const t of TABS) $(`tab-${t.id}`).hidden = state.tabs.hidden.includes(t.id);
+  const arrow = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d === -1 ? "M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6z" : "M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"}"/></svg>`;
+  $("tabSettings").innerHTML = state.tabs.order.map((id, i) => {
+    const t = TABS.find((x) => x.id === id);
+    const shown = !state.tabs.hidden.includes(id);
+    return `
+      <li>
+        <div><strong>${escape(t.name)}</strong><span>${escape(t.note)}</span></div>
+        <div class="tab-controls">
+          <button class="icon-button" type="button" data-tab-move="${id}" data-dir="-1" aria-label="Move ${escape(t.name)} up"${i === 0 ? " disabled" : ""}>${arrow(-1)}</button>
+          <button class="icon-button" type="button" data-tab-move="${id}" data-dir="1" aria-label="Move ${escape(t.name)} down"${i === state.tabs.order.length - 1 ? " disabled" : ""}>${arrow(1)}</button>
+          <button class="switch" type="button" role="switch" data-tab-show="${id}" aria-checked="${shown}" aria-label="Show ${escape(t.name)}"></button>
+        </div>
+      </li>`;
+  }).join("");
+  if (!visibleViews().includes(state.view)) showView(visibleViews()[0]);
+  moveTabIndicator();
+}
+
+function saveTabs(tabs) {
+  state.tabs = tabs;
+  save("tabs", tabs);
+  applyTabs();
+}
+
+// Saved tab settings, checked: unknown tabs dropped, new ones added at the end.
+function readTabs(saved) {
+  if (!saved || !Array.isArray(saved.order)) return DEFAULT_TABS;
+  const ids = TABS.map((t) => t.id);
+  const order = saved.order.filter((id, i) => ids.includes(id) && saved.order.indexOf(id) === i);
+  const added = ids.filter((id) => !order.includes(id)); // tabs newer than the saved settings
+  const hidden = (Array.isArray(saved.hidden) ? saved.hidden : []).filter((id) => ids.includes(id));
+  return { order: [...order, ...added], hidden: [...hidden, ...added.filter((id) => DEFAULT_TABS.hidden.includes(id))] };
 }
 
 // The line under the active tab slides to it.
@@ -927,6 +983,93 @@ function showListDrivers(list, all) {
   driverFrame = requestAnimationFrame(step);
 }
 
+// ---------- Comparison ----------
+// A time estimate for a task next to what its conversations took and cost (see src/comparison.js).
+// The conversations' time is measured, never typed.
+
+// A number as typed, with a comma or a dot for decimals and spaces or commas for thousands. null: none.
+function parseNumber(text) {
+  let t = String(text || "").trim().replace(/[\s$]/g, "");
+  if (!t) return null;
+  if (/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(t)) t = t.replace(/,/g, ""); // 6,500 or 6,500.50
+  else t = t.replace(",", ".");
+  const n = Number(t);
+  return Number.isFinite(n) && n >= 0 ? n : NaN;
+}
+
+function compareRow(c) {
+  const on = state.comparePicked.has(c.id);
+  return `
+    <tr class="job-row pick-row${on ? " is-picked" : ""}" data-pick-row="${escape(c.id)}">
+      <td class="check-col"><button class="pick" type="button" role="checkbox" aria-checked="${on}" data-pick="${escape(c.id)}" aria-label="Pick ${escape(c.title)}"></button></td>
+      <td class="wrap-text"><span class="model-name">${marked(c.title, state.compareSearch)}</span><span class="badge">${marked(TOOL_NAMES[c.tool] || c.tool, state.compareSearch)}</span>
+        <span class="provider row-meta">${marked(conversationMeta(c), state.compareSearch)}</span></td>
+      <td class="num">${costText(c.cost, c.approximate)}</td>
+    </tr>`;
+}
+
+function compareTile(label, value, hint, tone = "") {
+  return `<div class="tile${tone ? ` ${tone}` : ""}"><span class="tile-label">${escape(label)}</span><span class="tile-value">${value}</span><span class="tile-hint">${escape(hint)}</span></div>`;
+}
+
+function renderCompare() {
+  const C = window.Comparison;
+  if (!anyTracking()) {
+    $("compareTotals").innerHTML = "";
+    $("compareRows").innerHTML = emptyRow(3, "Nothing to pick yet. Turn on the AI tools you want to track, and their conversations show up here.", { attr: "data-go-tracking", label: "Track AI spending" });
+    $("compareCount").textContent = "";
+    $("compareMore").hidden = true;
+    return;
+  }
+  const all = state.history ? state.history.conversations : [];
+  const picked = all.filter((c) => state.comparePicked.has(c.id));
+  const measured = C.timeWithAi(picked);
+  const tokens = picked.reduce((s, c) => s + c.cost, 0);
+  const approx = picked.some((c) => c.approximate);
+  const typed = C.parseDuration(state.compareEstimate);
+  const estimate = typed > 0 ? typed : null;
+  $("estimate").setAttribute("aria-invalid", Number.isNaN(typed));
+  const r = C.compare({ monthlyCost: state.monthlyCost, estimateHours: estimate, measuredHours: picked.length ? measured : null, tokens });
+  const rate = !state.monthlyCost ? "Set a monthly cost" : null;
+
+  // Manual work (the time you type, in its box), the AI conversations (measured) and the difference.
+  const manualValue = r.estimate !== null ? money(r.estimate) : "–";
+  const manualHint = Number.isNaN(typed) ? "Try 2w 3d or 1d 4h" : !estimate ? "Enter an estimated time below" : `${C.formatDuration(estimate)} at ${money(state.monthlyCost)} a month`;
+  const convValue = picked.length ? (r.conversations !== null ? costText(r.conversations, approx) : costText(tokens, approx)) : "–";
+  const count = `${picked.length} conversation${picked.length === 1 ? "" : "s"}`;
+  const convHint = !picked.length ? "Pick conversations below" : state.monthlyCost
+    ? `${count} · ${C.formatDuration(measured)} · ${costText(tokens, approx)} in tokens`
+    : `${count} · ${costText(tokens, approx)} in tokens`;
+  let diff = "–", diffHint = "", tone = "";
+  // What using AI cost compared with doing it by hand, more or less. Said the same way in both directions.
+  if (r.difference !== null && picked.length) {
+    const zero = Math.abs(r.difference) < 0.005;
+    diff = zero ? "The same" : `${costText(Math.abs(r.difference), approx)} ${r.difference > 0 ? "less" : "more"}`;
+    diffHint = "than doing it by hand";
+    tone = zero ? "" : r.difference > 0 ? "is-lower" : "is-higher";
+  }
+  const manualTile = compareTile("Manual work", manualValue, "").replace('<span class="tile-hint"></span>', `<span class="tile-hint">${rate ? `<button class="link-button" type="button" data-set-monthly-cost>${rate}</button> to price it` : escape(manualHint)}</span>`);
+  $("compareTotals").innerHTML = manualTile + compareTile("AI conversations", convValue, convHint) + compareTile("Using AI", diff, diffHint || (rate ? "" : "Needs an estimated time and conversations"), tone);
+
+  // The header box: shows that some are picked, and clears them.
+  $("compareClear").setAttribute("aria-checked", picked.length ? "mixed" : "false");
+  $("compareClear").disabled = !picked.length;
+  if (!state.history) {
+    $("compareRows").innerHTML = `<tr><td colspan="3" class="empty">Loading…</td></tr>`;
+    return;
+  }
+  const query = state.compareSearch.trim();
+  const list = searchList(all, query);
+  const visible = list.slice(0, state.compareShown);
+  $("compareRows").innerHTML = visible.length ? visible.map(compareRow).join("")
+    : query ? emptyRow(3, `No conversations match "${query}".`, { attr: "data-clear-compare-search", label: "Clear search" })
+    : emptyRow(3, "Nothing here yet. Conversations show up here as you use your tracked AI tools.");
+  $("compareCount").textContent = list.length ? `Showing ${visible.length} of ${list.length} ${query ? "matching " : ""}conversations.` : "";
+  const more = Math.min(PAGE, list.length - visible.length);
+  $("compareMore").hidden = more <= 0;
+  $("compareMore").textContent = `Show ${more} more`;
+}
+
 // What the cost was made of, as one bar with named parts. Facts only: suggestions come from the AI.
 function driversBar(c) {
   const d = c.insights.drivers;
@@ -1107,8 +1250,8 @@ function conversationMeta(c) {
 }
 
 // Text with the searched words marked, escaped.
-function marked(text) {
-  const q = state.historySearch.trim();
+function marked(text, query = state.historySearch) {
+  const q = query.trim();
   if (!q) return escape(text);
   let out = "", at = 0;
   for (const [a, b] of window.ConversationSearch.highlights(text, q)) {
@@ -1148,6 +1291,16 @@ function emptyRow(columns, text, action = null) {
   return `<tr><td colspan="${columns}" class="empty"><p>${escape(text)}</p>${action ? `<button class="button ghost" type="button" ${action.attr}>${escape(action.label)}</button>` : ""}</td></tr>`;
 }
 
+// The conversations matching a search, name matches first (see search.js). Spending and Comparison.
+function searchList(list, query) {
+  if (!query) return list;
+  const items = list.map((c) => ({
+    title: c.title,
+    details: [conversationMeta(c), TOOL_NAMES[c.tool] || c.tool, ...modelWords(c), c.archived ? "archived" : "", formatDate(c.end), ...(c.helpers || []).map((h) => h.title)].join(" · "),
+  }));
+  return window.ConversationSearch.searchConversations(items, query).map((h) => list[h.index]);
+}
+
 function renderHistory() {
   if (!anyTracking()) {
     return historyEmpty(emptyRow(2, "Nothing here yet. Turn on the AI tools you want to track, and their conversations show up here.", { attr: "data-go-tracking", label: "Track AI spending" }));
@@ -1172,13 +1325,7 @@ function renderHistory() {
   // Search: every conversation, not just the ones shown; name matches first (see search.js). The
   // totals follow it, so they say what the conversations you searched for cost.
   const query = state.historySearch.trim();
-  if (query) {
-    const items = list.map((c) => ({
-      title: c.title,
-      details: [conversationMeta(c), TOOL_NAMES[c.tool] || c.tool, ...modelWords(c), c.archived ? "archived" : "", formatDate(c.end), ...(c.helpers || []).map((h) => h.title)].join(" · "),
-    }));
-    list = window.ConversationSearch.searchConversations(items, query).map((h) => list[h.index]);
-  }
+  list = searchList(list, query);
   showTotals(historyTotals(list, all));
   showListDrivers(list, all);
   const visible = list.slice(0, state.historyShown);
@@ -1197,11 +1344,13 @@ async function loadHistory() {
   if (!anyTracking()) {
     state.warnings.history = [];
     renderNotices();
+    renderCompare();
     return renderHistory();
   }
   if (historyLoading) return;
   historyLoading = true;
   renderHistory();
+  renderCompare();
   try {
     state.history = await api.historyList();
   } catch (error) {
@@ -1212,6 +1361,7 @@ async function loadHistory() {
   state.warnings.history = state.history.warnings || [];
   renderNotices();
   renderHistory();
+  renderCompare();
   loadSources(); // a ⚠ step may be done now (Cursor started recording)
 }
 
@@ -1415,6 +1565,65 @@ $("historyRows").addEventListener("click", (event) => {
   $("historySearch").focus();
 });
 
+// Comparison: picking conversations (the box or anywhere on the row), searching, and the inputs.
+$("compareRows").addEventListener("click", (event) => {
+  if (event.target.closest("[data-clear-compare-search]")) {
+    $("compareSearch").value = "";
+    state.compareSearch = "";
+    state.compareShown = PAGE;
+    renderCompare();
+    $("compareSearch").focus();
+    return;
+  }
+  const row = event.target.closest("[data-pick-row]");
+  if (!row) return;
+  const id = row.dataset.pickRow;
+  if (state.comparePicked.has(id)) state.comparePicked.delete(id);
+  else state.comparePicked.add(id);
+  renderCompare();
+  const box = document.querySelector(`[data-pick="${CSS.escape(id)}"]`);
+  if (box && event.target.closest("[data-pick]")) box.focus();
+});
+$("estimate").addEventListener("input", () => {
+  state.compareEstimate = $("estimate").value;
+  renderCompare();
+});
+// "Set a monthly cost": to the setting in Settings & help.
+document.addEventListener("click", (event) => {
+  if (!event.target.closest("[data-set-monthly-cost]")) return;
+  showView("help", { animate: true });
+  $("monthlyCost").scrollIntoView({ block: "center" });
+  $("monthlyCost").focus();
+});
+$("compareClear").addEventListener("click", () => {
+  state.comparePicked.clear();
+  renderCompare();
+});
+let compareSearchTimer = null;
+$("compareSearch").addEventListener("input", (event) => {
+  clearTimeout(compareSearchTimer);
+  compareSearchTimer = setTimeout(() => {
+    state.compareSearch = event.target.value;
+    state.compareShown = PAGE;
+    renderCompare();
+  }, 120);
+});
+$("compareMore").addEventListener("click", () => {
+  const before = $("compareRows").children.length;
+  state.compareShown += PAGE;
+  renderCompare();
+  animateRows($("compareRows"), before);
+});
+const markInvalid = (input, value) => input.setAttribute("aria-invalid", Number.isNaN(value));
+$("monthlyCost").addEventListener("input", () => {
+  const value = parseNumber($("monthlyCost").value);
+  markInvalid($("monthlyCost"), value);
+  if (Number.isNaN(value)) return;
+  state.monthlyCost = value || null;
+  save("monthlyCost", state.monthlyCost);
+  renderCompare();
+});
+
 $("historyMore").addEventListener("click", () => {
   const before = $("historyRows").children.length;
   state.historyShown += PAGE;
@@ -1480,7 +1689,8 @@ document.querySelectorAll(".tab").forEach((tab) => {
   });
   tab.addEventListener("keydown", (event) => {
     if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
-    const next = VIEWS[(VIEWS.indexOf(state.view) + (event.key === "ArrowRight" ? 1 : VIEWS.length - 1)) % VIEWS.length];
+    const views = visibleViews();
+    const next = views[(views.indexOf(state.view) + (event.key === "ArrowRight" ? 1 : views.length - 1)) % views.length];
     showView(next, { animate: true });
     $(`tab-${next}`).focus();
   });
@@ -1557,6 +1767,27 @@ new MutationObserver(() => {
   }
 }).observe(document.body, { childList: true, subtree: true });
 
+// Tabs in Settings & help: move left or right, show or hide.
+$("tabSettings").addEventListener("click", (event) => {
+  const move = event.target.closest("[data-tab-move]");
+  const show = event.target.closest("[data-tab-show]");
+  if (move) {
+    const order = [...state.tabs.order];
+    const i = order.indexOf(move.dataset.tabMove), j = i + Number(move.dataset.dir);
+    if (j < 0 || j >= order.length) return;
+    [order[i], order[j]] = [order[j], order[i]];
+    saveTabs({ ...state.tabs, order });
+    // Keep focus on the same button, so it can be pressed again.
+    const again = document.querySelector(`[data-tab-move="${move.dataset.tabMove}"][data-dir="${move.dataset.dir}"]`);
+    (again && !again.disabled ? again : document.querySelector(`[data-tab-show="${move.dataset.tabMove}"]`)).focus();
+  } else if (show) {
+    const id = show.dataset.tabShow;
+    const hidden = state.tabs.hidden.includes(id) ? state.tabs.hidden.filter((h) => h !== id) : [...state.tabs.hidden, id];
+    saveTabs({ ...state.tabs, hidden });
+    document.querySelector(`[data-tab-show="${id}"]`).focus();
+  }
+});
+
 $("aiTools").addEventListener("click", async (event) => {
   const button = event.target.closest("[data-ai-tool]");
   if (button) return pickAiTool(button.dataset.aiTool);
@@ -1585,7 +1816,7 @@ $("openData").addEventListener("click", () => api.openDataFolder());
 // Clearing saved data. Each asks first, then the window shows what's left, on the same tab.
 const CLEAR_QUESTIONS = {
   prices: "Clear the saved prices and get fresh ones from OpenRouter?",
-  settings: "Reset filters, sort, token budget, search and theme? Favorites and plans stay.",
+  settings: "Reset filters, sort, token budget, search, theme, tabs and monthly cost? Favorites and plans stay.",
   favorites: "Remove all your favorites?",
   jobs: "Delete all plans, with their estimates and real costs? This can't be undone.",
   history: "Delete the history TokenScope saved? Cursor conversations, and older ones Claude Code, Codex, OpenCode or Zed no longer keep themselves, disappear from Spending. This can't be undone.",
@@ -1633,6 +1864,10 @@ function applyStore(data) {
   state.tokensMillions = parseTokens(state.tokensText) ?? 1;
   state.search = typeof s.search === "string" ? s.search : "";
   state.theme = s.theme === "light" ? "light" : "dark";
+  state.tabs = readTabs(s.tabs);
+  applyTabs();
+  state.monthlyCost = Number(s.monthlyCost) > 0 ? Number(s.monthlyCost) : null;
+  $("monthlyCost").value = state.monthlyCost ? String(state.monthlyCost) : "";
   $("search").value = state.search;
   $("tokens").value = state.tokensText;
   applyTheme();
@@ -1649,8 +1884,8 @@ async function start() {
   try {
     data = await api.readStore();
   } catch {}
-  state.view = "models"; // always start on Models
-  showView(state.view);
+  state.tabs = readTabs((data.settings || {}).tabs);
+  showView(visibleViews()[0]); // always start on the first tab
   applyStore(data);
   // Place the tab line first, then let it slide from then on.
   requestAnimationFrame(() => $("tabIndicator").classList.add("ready"));
