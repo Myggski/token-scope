@@ -66,6 +66,15 @@ function findPricedModel(models, logModel) {
   }
 }
 
+// A free variant's paid twin, for its name only: "deepseek-v4.1-flash-free" (OpenCode Zen) or
+// "deepseek/deepseek-v4.1-flash:free" (OpenRouter) -> DeepSeek V4.1 Flash. Never for its price: a
+// free model is priced by what the tool recorded. The ending alone doesn't make a model free, so
+// callers use this only when the tool recorded $0 (see summarize in history.js).
+function freeTwin(models, logModel) {
+  const key = modelKey(logModel);
+  return /-free$/.test(key) ? findPricedModel(models, key.replace(/-free$/, "")) : null;
+}
+
 // Price of one model's usage. Cache writes cost extra: 1.25x input for 5-minute caching (or the
 // provider's listed cache-write price), 2x for 1-hour caching.
 function usageCost(model, u) {
@@ -267,4 +276,4 @@ async function syncActuals(store, models, options) {
   return ids.length;
 }
 
-module.exports = { byCost, syncActuals, findActuals, modelKey, logsFolder, logsFolders, listLogs, listAllLogs, parseLines, sumUsage, findPricedModel, usageCost };
+module.exports = { byCost, syncActuals, findActuals, modelKey, logsFolder, logsFolders, listLogs, listAllLogs, parseLines, sumUsage, findPricedModel, freeTwin, usageCost };

@@ -10,11 +10,12 @@ const os = require("os");
 const path = require("path");
 const { cursorChats } = require("./cursordb");
 const { loadZedThreads } = require("./zed");
-const { byCost, listAllLogs, logsFolders, parseLines, sumUsage, findPricedModel, usageCost } = require("./claudelogs");
+const { byCost, listAllLogs, logsFolders, parseLines, sumUsage, findPricedModel, freeTwin, usageCost } = require("./claudelogs");
 const { wslHomes } = require("./wsl");
 const { DEFAULT_CACHE_HIT, estimateJob } = require("./estimate");
 const { analyze, commandKind } = require("./insights");
 const { share } = require("./checks");
+const { activitySpans } = require("./activity");
 
 const DAY = 86400e3;
 const ZERO = () => ({ requests: 0, input: 0, cacheRead: 0, write5m: 0, write1h: 0, output: 0 });
@@ -35,7 +36,9 @@ function summarize(byModel, models, ownCost = new Map()) {
     const totalIn = u.input + u.cacheRead + u.write5m + u.write1h;
     input += totalIn;
     fullPrice += u.input + u.write5m + u.write1h;
-    rows.push({ model: name, modelId: priced ? priced.id : null, ...(u.tier ? { tier: u.tier } : {}), requests: u.requests, input: totalIn, cacheRead: u.cacheRead, cacheWrite: u.write5m + u.write1h, output: u.output, cost: c });
+    // A free model the tool recorded at $0: named after its paid twin, still priced at what was paid.
+    const twin = !priced && c !== null && c < 0.005 ? freeTwin(models, u.model || name) : null;
+    rows.push({ model: name, modelId: priced ? priced.id : null, ...(twin ? { nameId: twin.id, free: true } : {}), ...(u.tier ? { tier: u.tier } : {}), requests: u.requests, input: totalIn, cacheRead: u.cacheRead, cacheWrite: u.write5m + u.write1h, output: u.output, cost: c });
   }
   rows.sort((a, b) => (b.cost || 0) - (a.cost || 0));
   return { models: rows, cost, unpriced, fullPriceShare: input ? fullPrice / input : null };
@@ -235,14 +238,32 @@ function summarizeClaude(log, lines, helperLines, models, skip) {
     const p = findPricedModel(models, name);
     if (p) helperCost += usageCost(p, u);
   }
-  return priced.models.length && start !== null ? {
+  if (!priced.models.length || start === null) return null;
+  const timeline = claudeTimeline(lines, models, skip);
+  return {
     id: `claude-code:${sessionId || path.basename(log.file, ".jsonl")}`,
     tool: "claude-code", title: title || "Untitled conversation", project: cwd ? path.basename(cwd) : null,
     start, end, approximate: false, jobIds: [...jobIds], ...priced,
-    insights: analyze({ ...claudeTimeline(lines, models, skip), helperCost, total: priced.cost }),
+    activity: claudeActivity([lines, ...helperLines], [timeline, ...helperLines.map((h) => claudeTimeline(h, models, skip))], start, skip),
+    insights: analyze({ ...timeline, helperCost, total: priced.cost }),
     // Kept in the saved summary, so a copy of these replies elsewhere isn't counted again once this log is gone.
     replyIds: [...claudeReplyIds([lines, ...helperLines])].filter((id) => !skip.has(id)),
-  } : null;
+  };
+}
+
+// When something happened in a Claude Code conversation (see activity.js): every timed line in it
+// and its subagents, and each tool run from its call to its result, so a long build isn't a break.
+// A fork's copied history (before its first own reply) isn't its own activity.
+function claudeActivity(lineSets, timelines, start, skip) {
+  const points = [];
+  for (const lines of lineSets) for (const { entry } of lines) {
+    const t = entry.timestamp ? Date.parse(entry.timestamp) : NaN;
+    if (!Number.isFinite(t) || (skip.size && t < start)) continue;
+    if (entry.type === "assistant" && entry.message && skip.has(entry.message.id || entry.requestId || entry.uuid)) continue;
+    points.push(t);
+  }
+  const intervals = timelines.flatMap((x) => x.tools).filter((x) => x.ms > 0 && (!skip.size || x.t - x.ms >= start)).map((x) => [x.t - x.ms, x.t]);
+  return activitySpans({ points, intervals });
 }
 
 // ---------- Codex ----------
@@ -305,6 +326,7 @@ function openCodeMessage(row, data) {
     session: data.sessionID || data.session_id || row.session_id || row.sessionID || null,
     model: model || "unknown",
     time: typeof created === "number" ? created : Date.parse(created),
+    done: data.time && typeof data.time.completed === "number" ? data.time.completed : null, // when the reply was finished
     cwd: (data.path && (data.path.cwd || data.path.root)) || null,
     hasTokens: !!t && typeof t === "object",
     tokens: { input: (t && t.input) || 0, output: ((t && t.output) || 0) + ((t && t.reasoning) || 0), read: cache.read || 0, write: cache.write || 0 },
@@ -666,7 +688,8 @@ async function readOpenCode(models, since, { folder, checks = NO_CHECKS, savedOw
       for (const m of bySession.get(helper)) {
         addMessage(byModel, own, m);
         const p = findPricedModel(models, m.model);
-        ran.set(m.model, { model: m.model, modelId: p ? p.id : null });
+        const twin = !p && m.cost === 0 ? freeTwin(models, m.model) : null;
+        ran.set(m.model, { model: m.model, modelId: p ? p.id : null, ...(twin ? { nameId: twin.id, free: true } : {}) });
         cost += p ? usageCost(p, { requests: 1, input: m.tokens.input, cacheRead: m.tokens.read, write5m: m.tokens.write, write1h: 0, output: m.tokens.output }) : m.cost || 0;
         end = Math.max(end, m.time);
       }
@@ -687,6 +710,15 @@ async function readOpenCode(models, since, { folder, checks = NO_CHECKS, savedOw
       return { ...x, after };
     });
     const pauses = openCodeTimeline(ordered, [...(users.get(id) || [])], ran);
+    // When something happened (see activity.js): replies from start to finish, your messages and
+    // tool runs, in this conversation and its subagents. A fork's copied history isn't its own.
+    const ownTime = (t) => !(info.forkOf || forks.has(id)) || t >= ordered[0].time;
+    const replies = [...list, ...helpers.flatMap((h) => bySession.get(h))];
+    const activity = activitySpans({
+      points: [...replies.map((m) => m.time), ...[id, ...helpers].flatMap((s) => [...(users.get(s) || [])])].filter(ownTime),
+      intervals: [...replies.filter((m) => m.done > m.time).map((m) => [m.time, m.done]),
+        ...[id, ...helpers].flatMap((s) => tools.get(s) || []).filter((x) => ownTime(x.start)).map((x) => [x.start, x.t])],
+    });
     const requests = ordered.map((m, i) => {
       const p = findPricedModel(models, m.model);
       const usage = { requests: 1, input: m.tokens.input, cacheRead: m.tokens.read, write5m: m.tokens.write, write1h: 0, output: m.tokens.output };
@@ -703,7 +735,8 @@ async function readOpenCode(models, since, { folder, checks = NO_CHECKS, savedOw
       ...(info.forkOf || forks.has(id) ? { fork: { of: info.forkOf && sessions.get(info.forkOf) ? sessions.get(info.forkOf).title || "Untitled conversation" : null } } : {}),
       ...(helpers.length ? { helpers: helperList, includes: helpers.map((h) => `opencode:${h}`) } : {}),
       // Kept in the saved summary (see savedOwners above).
-      replyIds: [...list, ...helpers.flatMap((h) => bySession.get(h))].map(openCodePrint),
+      replyIds: replies.map(openCodePrint),
+      activity,
       insights: analyze({ requests, tools: ran, cacheMinutes: 5, helperCost, total: priced.cost }),
     });
   }
@@ -1159,8 +1192,11 @@ function readCursor(models, since, { folder, checks = NO_CHECKS, cacheHit = CURS
       t: r.t, after: indexAt(r.t), kind: r.kind, tool: "shell", file: null, ms: r.ms || 0, outTokens: 0,
     })));
     const jobIds = [...new Set(records.filter((r) => r.job).map((r) => r.job))];
+    // When something happened (see activity.js): every record, and each command or tool from start to end.
+    const recorded = [records, ...includes.map((c) => byConversation.get(c.replace(/^cursor:/, "")))].flat();
+    const activity = activitySpans({ points: recorded.map((r) => r.t), intervals: recorded.filter((r) => r.ms > 0).map((r) => [r.t - r.ms, r.t]) });
     out.push({
-      id: `cursor:${id}`, tool: "cursor", title: (info.get(id) || {}).name || (records.find((r) => r.title) || {}).title || "Cursor conversation",
+      id: `cursor:${id}`, activity, tool: "cursor", title: (info.get(id) || {}).name || (records.find((r) => r.title) || {}).title || "Cursor conversation",
       project: (records.find((r) => r.project) || {}).project || null,
       start: records[0].t, end, approximate: true, ...((info.get(id) || {}).archived ? { archived: true } : {}), ...(includes.length ? { includes } : {}), jobIds, ...priced,
       insights: analyze({ requests, tools, cacheMinutes: 5, helperCost, total: priced.cost }),

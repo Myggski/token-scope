@@ -52,11 +52,15 @@ const state = {
   sources: [], // the AI tools TokenScope can track, and whether they're on
   compareModels: null, // models a conversation is re-priced on in Spending; null = your favorites
   historyShown: PAGE,
+  historyByProject: false, // Spending grouped by project (remembered)
+  openProjects: new Set(), // projects whose conversations are shown
+  projectShown: new Map(), // project -> how many of its conversations are shown
   comparePicked: new Set(), // Comparison: the conversations picked (ids), for this session
   compareSearch: "",
   compareShown: PAGE,
   compareEstimate: "", // the estimated time as typed
   monthlyCost: 6500, // USD, roughly what a month of one person's work costs, remembered (6500 until changed)
+  breakMinutes: 20, // a gap in a conversation longer than this is a break, left out of its time (see activity.js)
   historySearch: "", // Spending's search (not remembered between launches)
   openConversations: new Set(),
   subagentsShown: new Map(), // conversation id -> how many subagent rows its Details show
@@ -222,7 +226,7 @@ function renderModels({ animate } = {}) {
   $("showMore").textContent = `Show ${more} more`;
   if (animate === "all") animateRows($("rows"));
   else if (typeof animate === "number") animateRows($("rows"), animate);
-  document.querySelectorAll(".seg button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.sort === state.sort));
+  document.querySelectorAll(".seg button[data-sort]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.sort === state.sort));
   $("sortNote").textContent = SORT_NOTES[state.sort];
 }
 
@@ -765,6 +769,12 @@ function formatWhen(ms) {
   return new Date(ms).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+// How long something happened in a conversation, breaks left out (≈ when only its start and end are known).
+function conversationTime(c) {
+  const { hours, approximate } = window.Activity.activeTime([c], state.breakMinutes);
+  return `${approximate ? "≈ " : ""}${formatDuration(hours * 3600e3)}`;
+}
+
 function formatDuration(ms) {
   const minutes = Math.round(ms / 60e3);
   if (minutes < 1) return "under a minute";
@@ -776,14 +786,15 @@ function formatDuration(ms) {
 // by name; anything else is "Other".
 const MAKERS = [[/claude|opus|sonnet|haiku/i, "Anthropic"], [/gpt|codex|^o\d/i, "OpenAI"], [/gemini|gemma/i, "Google"], [/grok/i, "xAI"], [/deepseek/i, "DeepSeek"], [/qwen/i, "Qwen"], [/llama/i, "Meta"], [/mistral|codestral|devstral/i, "Mistral"], [/glm/i, "Z.ai"], [/kimi/i, "MoonshotAI"]];
 function providerOf(m) {
-  const listed = m.modelId && state.models.find((x) => x.id === m.modelId);
+  const listed = (m.modelId || m.nameId) && state.models.find((x) => x.id === (m.modelId || m.nameId));
   if (listed && listed.provider) return listed.provider;
   const hit = MAKERS.find(([pattern]) => pattern.test(String(m.modelId || m.model).replace(/^.*\//, "")));
   return hit ? hit[1] : "Other";
 }
 
-// m.tier: Codex's fast or flex speed, which is priced differently.
-const historyModelName = (m) => (m.modelId ? modelName(m.modelId) + (m.tier ? ` (${m.tier})` : "") : m.model);
+// m.tier: Codex's fast or flex speed, which is priced differently. m.nameId: a free model's paid
+// twin, for the name only ("deepseek-v4.1-flash-free" is DeepSeek V4.1 Flash (free)).
+const historyModelName = (m) => (m.modelId ? modelName(m.modelId) + (m.tier ? ` (${m.tier})` : "") : m.nameId && state.models.some((x) => x.id === m.nameId) ? `${modelName(m.nameId)} (free)` : m.model);
 
 // What a conversation's models can be searched by besides their names: the maker, the model id as
 // the tool wrote it, and the name people know the maker's models by (GPT is "ChatGPT" to many).
@@ -794,7 +805,8 @@ function modelWords(c) {
     const maker = providerOf(m);
     out.add(maker);
     if (KNOWN_AS[maker.toLowerCase()]) out.add(KNOWN_AS[maker.toLowerCase()]);
-    for (const id of [m.model, m.modelId]) if (id) out.add(String(id));
+    for (const id of [m.model, m.modelId, m.nameId]) if (id) out.add(String(id));
+    if (m.free) out.add("free");
   }
   return [...out];
 }
@@ -1029,7 +1041,8 @@ function renderCompare() {
   }
   const all = state.history ? state.history.conversations : [];
   const picked = all.filter((c) => state.comparePicked.has(c.id));
-  const measured = C.timeWithAi(picked);
+  const time = window.Activity.activeTime(picked, state.breakMinutes);
+  const measured = time.hours;
   const tokens = picked.reduce((s, c) => s + c.cost, 0);
   const approx = picked.some((c) => c.approximate);
   const typed = C.parseDuration(state.compareEstimate);
@@ -1046,7 +1059,7 @@ function renderCompare() {
     : estimate >= 8 ? `${C.formatDuration(estimate)} × ${money(perDay)} a day` : `${C.formatDuration(estimate)} × ${money(r.hourly)} an hour`;
   const convValue = picked.length ? costText(r.conversations !== null ? r.conversations : tokens, approx || r.conversations !== null) : "–";
   const convHint = !picked.length ? "Pick conversations below" : r.timeCost !== null
-    ? `Your time (${C.formatDuration(measured)}, ${money(r.timeCost)}) + tokens (${costText(tokens, approx)})`
+    ? `Your time (${time.approximate ? "≈ " : ""}${C.formatDuration(measured)}, ${money(r.timeCost)}) + tokens (${costText(tokens, approx)})`
     : `Tokens (${costText(tokens, approx)})`;
   let diff = "–", diffHint = "", tone = "";
   // What using AI cost compared with doing it on your own, more or less. Said the same way in both directions.
@@ -1059,7 +1072,7 @@ function renderCompare() {
     tone = zero ? "" : r.difference > 0 ? "is-lower" : "is-higher";
   }
   const manualTile = compareTile("Estimate", manualValue, "").replace('<span class="tile-hint"></span>', `<span class="tile-hint">${rate ? `<button class="link-button" type="button" data-set-monthly-cost>${rate}</button> to price it` : escape(manualHint)}</span>`);
-  $("compareTotals").innerHTML = manualTile + compareTile("Using AI", convValue, convHint, "", "Only the tokens are an actual cost. Your time is the measured time in the conversations, priced from the estimated monthly cost. Keep in mind that time outside the conversations, like code review, testing or fixing, isn't included.") + compareTile("Difference", diff, diffHint || (rate ? "" : "Needs an estimated time and conversations"), tone);
+  $("compareTotals").innerHTML = manualTile + compareTile("Using AI", convValue, convHint, "", `Only the tokens are an actual cost. Your time is when something happened in the conversations, with gaps over ${state.breakMinutes} min left out as breaks, priced from the estimated monthly cost. Keep in mind that time outside the conversations, like code review, testing or fixing, isn't included.`) + compareTile("Difference", diff, diffHint || (rate ? "" : "Needs an estimated time and conversations"), tone);
 
   // Next to the search: how many are picked and what they cost.
   // An input chip (Material 3) that fades and grows in when something's picked, and out when cleared.
@@ -1128,6 +1141,7 @@ function factsLine(c) {
   const bits = [`${f.steps} steps`];
   if (t.edits || t.reads) bits.push(`${t.edits || 0} edits, ${t.reads || 0} file reads`);
   if (t.builds || t.tests) bits.push(`${t.builds || 0} builds and ${t.tests || 0} test runs${f.buildAndTestMinutes ? ` (${f.buildAndTestMinutes} min)` : ""}`);
+  if (f.compactions) bits.push(`compacted ${f.compactions}×`);
   if (f.cacheExpiries && f.cacheExpiries.length) bits.push(`cache expired ${f.cacheExpiries.length}×`);
   if (f.peakContextTokens) bits.push(`grew to ${formatTokens(f.peakContextTokens)} tokens`);
   if (f.helperCost >= 0.01 && !(c.helpers && c.helpers.length)) bits.push(`helper agents ${costText(f.helperCost, c.approximate)}`); // named ones get their own list
@@ -1202,7 +1216,7 @@ function conversationPanel(c) {
   const why = c.insights ? `
       <div class="panel-block">
         <h4>What the cost was made of</h4>
-        ${driversBar(c)}
+        ${c.cost >= 0.005 ? driversBar(c) : `<p class="panel-note">${c.models.length && c.models.every((m) => m.free) ? "It ran on a free model, so nothing was paid." : "Nothing was paid for this conversation."}</p>`}
         <p class="panel-note">${escape(factsLine(c))}.</p>
       </div>` : c.totalsOnly ? `
       <div class="panel-block">
@@ -1279,7 +1293,7 @@ function conversationMeta(c) {
   const fork = c.fork ? (c.fork.of ? `fork of “${c.fork.of}”` : "fork") : null;
   if (c.copyOnly) return [c.project, fork, "nothing new yet"].filter(Boolean).join(" · ");
   const subagents = c.helpers && c.helpers.length ? `${c.helpers.length} subagent${c.helpers.length === 1 ? "" : "s"}` : null;
-  return [c.project, fork, `last active ${formatWhen(c.end)}`, formatDuration(c.end - c.start), c.models.map(historyModelName).join(", "), subagents].filter(Boolean).join(" · ");
+  return [c.project, fork, `last active ${formatWhen(c.end)}`, conversationTime(c), c.models.map(historyModelName).join(", "), subagents].filter(Boolean).join(" · ");
 }
 
 // Text with the searched words marked, escaped.
@@ -1307,6 +1321,57 @@ function conversationRow(c) {
       <td class="num">${costText(c.cost, c.approximate)}${costNotes(c)}</td>
     </tr>
     <tr class="panel-row" id="${panelId}"${open ? "" : " hidden"}><td colspan="2">${open ? conversationPanel(c) : ""}</td></tr>`;
+}
+
+// Spending by project: the conversations grouped by their project, last active first (the same
+// order as the conversations). Conversations without one are under "No project".
+function projectGroups(list) {
+  const byName = new Map();
+  for (const c of list) {
+    const key = c.project || "";
+    if (!byName.has(key)) byName.set(key, { key, name: c.project || "No project", conversations: [], cost: 0, end: 0, approximate: false });
+    const g = byName.get(key);
+    g.conversations.push(c);
+    g.cost += c.cost;
+    g.end = Math.max(g.end, c.end);
+    g.approximate = g.approximate || !!c.approximate;
+  }
+  for (const g of byName.values()) g.conversations.sort((a, b) => b.end - a.end);
+  return [...byName.values()].sort((a, b) => b.end - a.end);
+}
+
+// A project's row, and when it's open, its conversations as the usual rows, a few at a time.
+function projectRows(g) {
+  const open = state.openProjects.has(g.key);
+  const n = g.conversations.length;
+  const listId = `proj-${g.key.replace(/[^a-z0-9-]/gi, "_") || "none"}`;
+  const shown = state.projectShown.get(g.key) || PAGE_SMALL;
+  const more = Math.min(PAGE_SMALL, n - shown);
+  const head = `
+    <tr class="job-row project-row${open ? " is-open" : ""}">
+      <td class="wrap-text">
+        <button class="row-toggle" type="button" data-toggle-project="${escape(g.key)}" aria-expanded="${open}" aria-controls="${listId}"><span class="chevron" aria-hidden="true"></span><span class="model-name">${marked(g.name)}</span></button>
+        <span class="provider row-meta">${n} conversation${n === 1 ? "" : "s"} · last active ${escape(formatWhen(g.end))}</span>
+      </td>
+      <td class="num">${costText(g.cost, g.approximate)}</td>
+    </tr>`;
+  if (!open) return head;
+  // The project is in the row above, so the conversations' lines leave it out.
+  const rows = g.conversations.slice(0, shown).map((c) => conversationRow({ ...c, project: null }).replace(/<tr class="(job-row|panel-row)/g, '<tr data-in="' + listId + '" class="in-project $1'));
+  const footer = more > 0 ? `
+    <tr class="in-project project-more" data-in="${listId}"><td colspan="2"><div class="list-footer"><p class="count">Showing ${shown} of ${n}.</p><button class="button ghost" type="button" data-more-project="${escape(g.key)}">Show ${more} more</button></div></td></tr>` : "";
+  return head + rows.join("") + footer;
+}
+
+// A project's conversations (from the from-th on) fade in one after another, like other lists.
+function animateProject(key, from) {
+  const button = [...document.querySelectorAll("[data-toggle-project]")].find((b) => b.dataset.toggleProject === key);
+  if (!button) return;
+  const rows = [...document.querySelectorAll(`#historyRows tr.in-project[data-in="${CSS.escape(button.getAttribute("aria-controls"))}"]`)].filter((r) => !r.classList.contains("panel-row"));
+  rows.slice(from).forEach((row, i) => {
+    row.style.animationDelay = `${Math.min(i, 12) * 18}ms`;
+    replay(row, "row-in");
+  });
 }
 
 // Shown in the table when there's nothing to list, like the Jobs table does.
@@ -1361,12 +1426,16 @@ function renderHistory() {
   list = searchList(list, query);
   showTotals(historyTotals(list, all));
   showListDrivers(list, all);
-  const visible = list.slice(0, state.historyShown);
-  $("historyRows").innerHTML = visible.length ? visible.map(conversationRow).join("")
+  const groups = state.historyByProject ? projectGroups(list) : null;
+  $("historyFirstColumn").textContent = groups ? "Project" : "Conversation";
+  const items = groups || list;
+  const visible = items.slice(0, state.historyShown);
+  $("historyRows").innerHTML = visible.length ? visible.map(groups ? projectRows : conversationRow).join("")
     : query ? emptyRow(2, `No conversations match "${query}".`, { attr: "data-clear-history-search", label: "Clear search" })
     : emptyRow(2, "Nothing here yet. Conversations show up here as you use your tracked AI tools.");
-  $("historyCount").textContent = list.length ? `Showing ${visible.length} of ${list.length} ${query ? "matching " : ""}conversations.` : "";
-  const more = Math.min(PAGE, list.length - visible.length);
+  const noun = groups ? (items.length === 1 ? "project" : "projects") : "conversations";
+  $("historyCount").textContent = items.length ? `Showing ${visible.length} of ${items.length} ${query ? "matching " : ""}${noun}.` : "";
+  const more = Math.min(PAGE, items.length - visible.length);
   $("historyMore").hidden = more <= 0;
   $("historyMore").textContent = `Show ${more} more`;
   $("historyErrors").textContent = state.history.errors.length ? `Couldn't read: ${state.history.errors.join(". ")}` : "";
@@ -1455,7 +1524,7 @@ $("theme").addEventListener("click", () => {
   applyTheme();
 });
 
-document.querySelectorAll(".seg button").forEach((button) =>
+document.querySelectorAll(".seg button[data-sort]").forEach((button) =>
   button.addEventListener("click", () => {
     state.sort = button.dataset.sort;
     save("sort", state.sort);
@@ -1664,6 +1733,38 @@ $("monthlyCost").addEventListener("input", () => {
 $("monthlyCost").addEventListener("blur", () => {
   if (!parseNumber($("monthlyCost").value)) $("monthlyCost").value = String(state.monthlyCost);
 });
+// Spending shows conversations or projects (a segmented button, like the Models tab's sort). Remembered.
+function applyByProject() {
+  document.querySelectorAll("[data-history-view]").forEach((b) => b.setAttribute("aria-pressed", String((b.dataset.historyView === "projects") === state.historyByProject)));
+}
+$("historyView").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-history-view]");
+  if (!button || (button.dataset.historyView === "projects") === state.historyByProject) return;
+  state.historyByProject = button.dataset.historyView === "projects";
+  save("historyByProject", state.historyByProject);
+  applyByProject();
+  state.historyShown = PAGE;
+  if (!state.history) return;
+  renderHistory();
+  animateRows($("historyRows"));
+});
+
+// Break after: whole minutes from 5 to 240. Empty goes back to the default.
+$("breakMinutes").addEventListener("input", () => {
+  const A = window.Activity;
+  const value = parseNumber($("breakMinutes").value);
+  const valid = value === null || (Number.isInteger(value) && value >= A.MIN_BREAK_MINUTES && value <= A.MAX_BREAK_MINUTES);
+  markInvalid($("breakMinutes"), valid ? value : NaN);
+  if (!valid) return;
+  state.breakMinutes = value || A.DEFAULT_BREAK_MINUTES;
+  save("breakMinutes", value || null);
+  renderHistory();
+  renderCompare();
+});
+$("breakMinutes").addEventListener("blur", () => {
+  $("breakMinutes").value = String(state.breakMinutes);
+  $("breakMinutes").setAttribute("aria-invalid", "false");
+});
 
 $("historyMore").addEventListener("click", () => {
   const before = $("historyRows").children.length;
@@ -1705,6 +1806,26 @@ $("historyRows").addEventListener("click", (event) => {
     const id = moreSubagents.dataset.moreSubagents;
     state.subagentsShown.set(id, (state.subagentsShown.get(id) || PAGE_SMALL) + PAGE_SMALL);
     return renderHistory();
+  }
+  const moreProject = event.target.closest("[data-more-project]");
+  if (moreProject) {
+    const key = moreProject.dataset.moreProject;
+    const before = state.projectShown.get(key) || PAGE_SMALL;
+    state.projectShown.set(key, before + PAGE_SMALL);
+    renderHistory();
+    animateProject(key, before);
+    return;
+  }
+  const project = rowToggle(event, "data-toggle-project");
+  if (project) {
+    const key = project.dataset.toggleProject;
+    if (state.openProjects.has(key)) state.openProjects.delete(key);
+    else state.openProjects.add(key);
+    renderHistory();
+    const again = [...document.querySelectorAll("[data-toggle-project]")].find((b) => b.dataset.toggleProject === key);
+    if (again) again.focus();
+    if (state.openProjects.has(key)) animateProject(key, 0);
+    return;
   }
   const t = rowToggle(event, "data-toggle-conv");
   if (!t) return;
@@ -1857,7 +1978,7 @@ $("openData").addEventListener("click", () => api.openDataFolder());
 // Clearing saved data. Each asks first, then the window shows what's left, on the same tab.
 const CLEAR_QUESTIONS = {
   prices: "Clear the saved prices and get fresh ones from OpenRouter?",
-  settings: "Reset filters, sort, token budget, search, theme, tabs and monthly cost? Favorites and plans stay.",
+  settings: "Reset filters, sort, token budget, search, theme, tabs, monthly cost and break length? Favorites and plans stay.",
   favorites: "Remove all your favorites?",
   jobs: "Delete all plans, with their estimates and real costs? This can't be undone.",
   history: "Delete the history TokenScope saved? Cursor conversations, and older ones Claude Code, Codex, OpenCode or Zed no longer keep themselves, disappear from Spending. This can't be undone.",
@@ -1909,6 +2030,10 @@ function applyStore(data) {
   applyTabs();
   state.monthlyCost = Number(s.monthlyCost) > 0 ? Number(s.monthlyCost) : DEFAULT_MONTHLY_COST;
   $("monthlyCost").value = String(state.monthlyCost);
+  state.historyByProject = s.historyByProject === true;
+  applyByProject();
+  state.breakMinutes = window.Activity.breakMinutes(s.breakMinutes);
+  $("breakMinutes").value = String(state.breakMinutes);
   $("search").value = state.search;
   $("tokens").value = state.tokensText;
   applyTheme();

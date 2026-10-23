@@ -120,7 +120,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .controls { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
 .control-row { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; }
 /* Segmented button: 40px, fully round. */
-.seg { display: inline-flex; border: 1px solid var(--control); border-radius: var(--round); overflow: hidden; }
+.seg { display: inline-flex; border: 1px solid var(--control); border-radius: var(--shape-s); overflow: hidden; }
 .seg button { height: 38px; padding: 0 16px; background: var(--surface); color: var(--fg); border: 0; font-size: 14px; line-height: 20px; font-weight: 500; cursor: pointer; }
 .seg button + button { border-left: 1px solid var(--control); }
 .seg button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
@@ -459,4 +459,11 @@ tr.panel-row > td { padding: 4px 16px 16px 38px; }
 /* Spending's search: the same field as Models' (with the same × to clear), a little wider. */
 .history-search-row, .compare-search-row { margin: 0 0 12px; }
 .history-search-row .search, .compare-search-row .search { width: 24rem; }
+.history-search-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.history-search-row .search { min-width: 0; flex: 0 1 24rem; }
+/* Spending by project: a project's conversations sit indented under it. */
+#historyRows tr.in-project > td { background: color-mix(in srgb, var(--fg) 2%, transparent); }
+#historyRows tr.in-project > td:first-child { padding-left: 40px; }
+#historyRows tr.in-project.panel-row > td { padding-left: 0; }
+#historyRows tr.project-more .list-footer { margin: 0; }
 mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: inherit; border-radius: 2px; padding: 0 1px; }

@@ -4,6 +4,13 @@ const readline = require("readline");
 const { sortRows } = require("./models");
 const { estimateJob, cacheWhatIf, describePhase, applyCorrection, correction, validPlan, toolOfClient, DEFAULT_CACHE_HIT } = require("./estimate");
 const { saveEstimate, recordActual, finishJob, continueJob, deleteJob, similarJobs, describeJob } = require("./jobs");
+const { activeTime, breakMinutes } = require("./activity");
+
+// How long something happened in a conversation, breaks longer than the app's setting left out.
+function activeMinutes(c, breakAfter) {
+  const { hours, approximate } = activeTime([c], breakAfter);
+  return { minutes: Math.round(hours * 60), ...(approximate ? { minutes_from_start_to_end: true } : {}) };
+}
 
 const round = (value, digits = 4) => (value === null || value === undefined ? null : Number(value.toFixed(digits)));
 
@@ -93,7 +100,7 @@ const TOOLS = [
   },
   {
     name: "get_history",
-    description: "The user's AI conversations from TokenScope's Spending tab (Claude Code, Codex, OpenCode, Zed and Cursor, only the tools the user switched on; Zed conversations have totals only, without cost drivers or facts): what each cost, on which models, and facts about what happened in it. Use it when the user asks why their AI work cost what it did or what could be improved. TokenScope gives facts only; working out the reasons and suggestions is up to you. Facts per conversation: cost_drivers_usd (the work itself, cache expiries during the user's pauses, during commands, of unknown cause, and large tool outputs re-read by every later step), cache_expiries (when the provider's cache ran out and what it cost), large_outputs (big tool results and what re-reading them cost), tool_use counts (edits, reads, builds, tests), build_and_test_minutes, files_read_several_times, peak context size, cost of the first and second half, the user's longest pause, and helper agents' cost. Look for patterns across conversations, attribute each to the user's habits, the AI's way of working or slow tools, estimate what changing it would save, and suggest concrete, reasonable changes.",
+    description: "The user's AI conversations from TokenScope's Spending tab (Claude Code, Codex, OpenCode, Zed and Cursor, only the tools the user switched on; Zed conversations have totals only, without cost drivers or facts): what each cost, on which models, and facts about what happened in it. Use it when the user asks why their AI work cost what it did or what could be improved. TokenScope gives facts only; working out the reasons and suggestions is up to you. Facts per conversation: cost_drivers_usd (the work itself, cache expiries during the user's pauses, during commands, of unknown cause, and large tool outputs re-read by every later step), cache_expiries (when the provider's cache ran out and what it cost), compactions (how often the context was summarized to make room, after which the conversation starts over from the summary), large_outputs (big tool results and what re-reading them cost), tool_use counts (edits, reads, builds, tests), build_and_test_minutes, files_read_several_times, peak context size, cost of the first and second half, the user's longest pause, and helper agents' cost. minutes is the time something happened in a conversation, with gaps longer than the user's break setting (20 minutes by default) left out; minutes_from_start_to_end marks conversations where only the start and end are known. Look for patterns across conversations, attribute each to the user's habits, the AI's way of working or slow tools, estimate what changing it would save, and suggest concrete, reasonable changes.",
     inputSchema: {
       type: "object",
       properties: {
@@ -307,6 +314,7 @@ function createHandlers({ store, getModels, sync = async () => {}, client = () =
     async get_history(args) {
       if (!history) throw new Error("History isn't available here.");
       const tracked = Object.entries(store.read().tracking || {}).filter(([, on]) => on).map(([id]) => id);
+      const breakAfter = breakMinutes(store.read().settings.breakMinutes);
       if (!tracked.length) {
         return { tracking: [], note: "No AI tools are tracked yet. The user can switch them on in TokenScope under Settings & help, Track AI spending. Nothing is recorded until they do." };
       }
@@ -329,12 +337,12 @@ function createHandlers({ store, getModels, sync = async () => {}, client = () =
         conversations: top.map((c) => {
           const f = c.insights ? c.insights.facts : {};
           return {
-            title: c.title, tool: c.tool, project: c.project, started: new Date(c.start).toISOString(), minutes: Math.round((c.end - c.start) / 60e3),
+            title: c.title, tool: c.tool, project: c.project, started: new Date(c.start).toISOString(), ...activeMinutes(c, breakAfter),
             cost_usd: r2(c.cost), approximate: c.approximate, share_of_input_paid_full_price: c.fullPriceShare === null ? null : round(c.fullPriceShare, 3),
-            models: c.models.map((m) => ({ model: m.modelId || m.model, requests: m.requests, input_tokens: Math.round(m.input), output_tokens: Math.round(m.output), cost_usd: m.cost === null ? null : r2(m.cost) })),
+            models: c.models.map((m) => ({ model: m.modelId || m.model, ...(m.free ? { free_variant_of: m.nameId } : {}), requests: m.requests, input_tokens: Math.round(m.input), output_tokens: Math.round(m.output), cost_usd: m.cost === null ? null : r2(m.cost) })),
             cost_drivers_usd: c.insights ? { the_work: r2(c.insights.drivers.work), cache_expired_in_user_pauses: r2(c.insights.drivers.pausesYou), cache_expired_during_commands: r2(c.insights.drivers.pausesTools), cache_expired_other: r2(c.insights.drivers.otherMisses), large_outputs_reread: r2(c.insights.drivers.bigOutputs) } : null,
             facts: c.insights ? {
-              steps: f.steps, cache_minutes: f.cacheMinutes, cache_expiries: f.cacheExpiries, large_outputs_count: f.largeOutputsCount, large_outputs: f.largeOutputs,
+              steps: f.steps, cache_minutes: f.cacheMinutes, cache_expiries: f.cacheExpiries, compactions: f.compactions || 0, large_outputs_count: f.largeOutputsCount, large_outputs: f.largeOutputs,
               tool_use: f.toolUse, build_and_test_minutes: f.buildAndTestMinutes, files_read_several_times: f.filesReadSeveralTimes,
               peak_context_tokens: f.peakContextTokens, first_half_cost_usd: f.firstHalfCostUsd, second_half_cost_usd: f.secondHalfCostUsd,
               user_replies: f.userReplies, longest_user_pause_minutes: f.longestUserPauseMinutes, helper_agents_cost_usd: f.helperCost,

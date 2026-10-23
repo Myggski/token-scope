@@ -52,4 +52,18 @@ assert.deepStrictEqual(a.facts.filesReadSeveralTimes, [{ file: "Loot.cpp", times
 // The breakdown never adds up to more than the conversation.
 a = analyze({ requests: steady(30), tools: [{ t: 0, after: 0, kind: "read", outTokens: 900000 }], total: 0.3 });
 assert.ok(Object.values(a.drivers).reduce((s, v) => s + v, 0) <= 0.3 + 1e-3);
+
+// A compaction isn't a cache expiry: the context drops to a short summary that's all new to the
+// cache. A real expiry later in the same conversation still counts.
+{
+  const m = { inPerM: 4, outPerM: 20, cachedPerM: 0.2, cacheWritePerM: null };
+  const step = (context, fresh, pause = 20e3) => ({ t: 0, model: m, pause: { ms: pause, who: "tool", kind: "other" }, context, fresh, cached: context - fresh, output: 1000, cost: 0.1 });
+  const requests = [step(150000, 5000), step(160000, 10000), step(15000, 15000), step(20000, 5000), step(26000, 26000, 10 * 60e3)];
+  const r = analyze({ requests, total: 0.5 });
+  assert.strictEqual(r.facts.compactions, 1);
+  assert.strictEqual(r.facts.cacheExpiries.length, 1);
+  assert.strictEqual(r.facts.cacheExpiries[0].step, 5);
+  // A small shrink (a trimmed tool output) isn't a compaction.
+  assert.strictEqual(analyze({ requests: [step(100000, 5000), step(90000, 3000)], total: 0.2 }).facts.compactions, 0);
+}
 console.log("insights tests passed");

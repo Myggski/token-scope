@@ -26,6 +26,7 @@ const { byCost, findPricedModel, usageCost } = require("./claudelogs");
 const { estimateJob } = require("./estimate");
 const { commandKind } = require("./insights");
 const { wslHomes } = require("./wsl");
+const { activitySpans } = require("./activity");
 
 const RUNNING_WINDOW = 15 * 60e3; // a log written to in the last 15 minutes counts as still running
 const LOOK_BACK = 60 * 24 * 3600e3; // jobs older than 60 days are left alone
@@ -419,6 +420,15 @@ function checkFormat(rollouts, checks) {
   if (rollouts.length >= 3 && rollouts.filter((r) => r.failed).length / rollouts.length > 0.5) checks.mismatch("codex", "Most of its logs couldn't be read, so Codex conversations are missing.");
 }
 
+// When something happened in a conversation and its subagents (see activity.js): its own requests,
+// your messages and each tool from its call to its output. A fork's copied history is left out.
+function codexActivity(logs) {
+  return activitySpans({
+    points: logs.flatMap((r) => [...counted(r).map((e) => e.t), ...r.userTimes]),
+    intervals: logs.flatMap((r) => r.tools.filter((x) => x.ms > 0).map((x) => [x.t, x.t + x.ms])),
+  });
+}
+
 // History: one entry per conversation. A subagent's log is added to the conversation that started it.
 async function readCodex(models, since, { home = codexHomes(), checks = { mismatch() {} }, summarize, analyze, zstd, forkRow } = {}) {
   const { rollouts, byId } = await loadRollouts(home, zstd);
@@ -468,6 +478,7 @@ async function readCodex(models, since, { home = codexHomes(), checks = { mismat
       jobIds: [...r.jobMarks.keys()], ...priced,
       // A fork: only its own requests count here; what it copied counts in the original.
       ...(r.parentId && !r.subagent ? { fork: { of: byId.get(r.parentId) ? names.get(r.parentId) || byId.get(r.parentId).title || "Untitled conversation" : null } } : {}),
+      activity: codexActivity([r, ...helpers]),
       insights: analyze({ ...timeline(r, models, defaultTier), cacheMinutes: 5, helperCost, total: priced.cost }),
     });
   }

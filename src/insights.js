@@ -19,6 +19,9 @@ function commandKind(command) {
   return "other";
 }
 
+// A compaction: the context drops to under 75% of what it was, from at least 10k tokens.
+const COMPACTED_FROM = 10000, COMPACTED_TO = 0.75;
+
 const perM = (tokens, price) => (tokens * price) / 1e6;
 const round = (v, d = 4) => Number(v.toFixed(d));
 const cachedPrice = (m) => (m ? m.cachedPerM ?? m.inPerM : 0);
@@ -37,9 +40,16 @@ function analyze({ requests, tools = [], cacheMinutes = 5, helperCost = 0, total
   if (!requests.length) return { facts, drivers: { ...drivers, work: total } };
 
   // Cache expiries: a request that paid full price for much more than what was new since the last one.
+  // Not after a compaction: the conversation then starts over from a short summary the cache hasn't
+  // seen, so a fresh start is expected, not an expiry. That shows as the context shrinking sharply.
   const expiries = [];
+  let compactions = 0;
   for (let i = 1; i < requests.length; i++) {
     const r = requests[i], prev = requests[i - 1];
+    if (prev.context >= COMPACTED_FROM && r.context < prev.context * COMPACTED_TO) {
+      compactions++;
+      continue;
+    }
     const excess = r.fresh - Math.max(0, r.context - prev.context);
     if (excess < Math.max(3000, r.context * 0.25)) continue;
     const who = r.pause && r.pause.ms >= 60e3 ? r.pause.who : "unknown";
@@ -48,6 +58,7 @@ function analyze({ requests, tools = [], cacheMinutes = 5, helperCost = 0, total
     expiries.push({ step: i + 1, pauseMinutes: r.pause ? round(r.pause.ms / 60e3, 1) : null, during: who === "you" ? "user's reply" : who === "tool" ? r.pause.kind || "command" : "unknown", reReadTokens: Math.round(excess), extraCostUsd: round(extra) });
   }
   facts.cacheExpiries = expiries;
+  facts.compactions = compactions;
 
   // Tool results stay in the conversation, so every later step re-reads them.
   const carry = (o) => requests.slice(o.after + 1).reduce((s, r) => s + perM(o.outTokens, cachedPrice(r.model)), 0);
