@@ -1,7 +1,8 @@
 // What happened in a conversation, cost-wise: facts only, no advice. The app shows the cost
 // breakdown; the AI reads the facts through MCP (get_history) and makes the suggestions.
 // Works on a timeline every reader builds from its tool's records:
-//   requests: [{ t, model (priced, or null), context, fresh, cached, output, cost,
+//   requests: [{ t, model (priced, or null), name (the model as the tool wrote it), agent (OpenCode),
+//                context, fresh, cached, output, cost,
 //                pause: { ms, who: "you" | "tool" | "unknown", kind: "build" | "test" | "other" | null } }]
 //   tools:    [{ t, after (index of the request that asked for it), kind: "edit" | "read" | "build" | "test" | "other",
 //                tool, file, ms, outTokens }]
@@ -22,6 +23,9 @@ function commandKind(command) {
 // A compaction: the context drops to under 75% of what it was, from at least 10k tokens.
 const COMPACTED_FROM = 10000, COMPACTED_TO = 0.75;
 
+// A step that reads more than this costs more for its size (Patterns' "Long conversations").
+const LONG_STEP_TOKENS = 100000;
+
 const perM = (tokens, price) => (tokens * price) / 1e6;
 const round = (v, d = 4) => Number(v.toFixed(d));
 const cachedPrice = (m) => (m ? m.cachedPerM ?? m.inPerM : 0);
@@ -36,13 +40,14 @@ function missPrice(model, cacheMinutes) {
 function analyze({ requests, tools = [], cacheMinutes = 5, helperCost = 0, total }) {
   total = total ?? requests.reduce((s, r) => s + (r.cost || 0), 0);
   const facts = { cacheMinutes, steps: requests.length, helperCost: round(helperCost) };
-  const drivers = { pausesYou: 0, pausesTools: 0, otherMisses: 0, bigOutputs: 0 };
+  const drivers = { pausesYou: 0, pausesTools: 0, otherMisses: 0, switches: 0, bigOutputs: 0 };
   if (!requests.length) return { facts, drivers: { ...drivers, work: total } };
 
   // Cache expiries: a request that paid full price for much more than what was new since the last one.
   // Not after a compaction: the conversation then starts over from a short summary the cache hasn't
   // seen, so a fresh start is expected, not an expiry. That shows as the context shrinking sharply.
   const expiries = [];
+  const reRead = new Map(); // step index -> its extra cost from a cache expiry, counted under that cause
   let compactions = 0;
   for (let i = 1; i < requests.length; i++) {
     const r = requests[i], prev = requests[i - 1];
@@ -52,10 +57,15 @@ function analyze({ requests, tools = [], cacheMinutes = 5, helperCost = 0, total
     }
     const excess = r.fresh - Math.max(0, r.context - prev.context);
     if (excess < Math.max(3000, r.context * 0.25)) continue;
-    const who = r.pause && r.pause.ms >= 60e3 ? r.pause.who : "unknown";
+    // A different model, or in OpenCode another agent (its own instructions), starts a new cache, so
+    // the step after a switch reads everything at full price whatever the pause was.
+    const switched = (r.name && prev.name && r.name !== prev.name) || (r.agent && prev.agent && r.agent !== prev.agent);
+    const who = switched ? "switch" : r.pause && r.pause.ms >= 60e3 ? r.pause.who : "unknown";
     const extra = perM(excess, missPrice(r.model, cacheMinutes));
-    drivers[who === "you" ? "pausesYou" : who === "tool" ? "pausesTools" : "otherMisses"] += extra;
-    expiries.push({ step: i + 1, pauseMinutes: r.pause ? round(r.pause.ms / 60e3, 1) : null, during: who === "you" ? "user's reply" : who === "tool" ? r.pause.kind || "command" : "unknown", reReadTokens: Math.round(excess), extraCostUsd: round(extra) });
+    drivers[{ switch: "switches", you: "pausesYou", tool: "pausesTools" }[who] || "otherMisses"] += extra;
+    reRead.set(i, extra);
+    const during = who === "switch" ? (r.name !== prev.name ? "model switch" : "agent switch") : who === "you" ? "user's reply" : who === "tool" ? r.pause.kind || "command" : "unknown";
+    expiries.push({ step: i + 1, pauseMinutes: r.pause ? round(r.pause.ms / 60e3, 1) : null, during, reReadTokens: Math.round(excess), extraCostUsd: round(extra) });
   }
   facts.cacheExpiries = expiries;
   facts.compactions = compactions;
@@ -80,6 +90,10 @@ function analyze({ requests, tools = [], cacheMinutes = 5, helperCost = 0, total
   const peak = Math.max(...requests.map((r) => r.context));
   const mid = Math.floor(requests.length / 2);
   facts.peakContextTokens = peak;
+  // What was spent on steps that read over 100k tokens (Spending's Patterns, see patterns.js). A
+  // full-price re-read on such a step is already counted under its cause (waiting, a build, a
+  // switch), so it's left out here: every dollar counts in one habit at most.
+  facts.longStepsCostUsd = round(requests.reduce((s, r, i) => (r.context > LONG_STEP_TOKENS ? s + Math.max(0, (r.cost || 0) - (reRead.get(i) || 0)) : s), 0));
   facts.firstHalfCostUsd = round(requests.slice(0, mid).reduce((s, r) => s + r.cost, 0));
   facts.secondHalfCostUsd = round(requests.slice(mid).reduce((s, r) => s + r.cost, 0));
   const userPauses = requests.filter((r) => r.pause && r.pause.who === "you").map((r) => r.pause.ms);
@@ -88,7 +102,7 @@ function analyze({ requests, tools = [], cacheMinutes = 5, helperCost = 0, total
 
   // The parts can overlap a little (a big output can also be re-read after a pause), so they're
   // scaled down if together they'd come to more than the whole conversation.
-  let explained = drivers.pausesYou + drivers.pausesTools + drivers.otherMisses + drivers.bigOutputs;
+  let explained = drivers.pausesYou + drivers.pausesTools + drivers.otherMisses + drivers.switches + drivers.bigOutputs;
   if (explained > total * 0.95 && explained > 0) {
     const scale = (total * 0.95) / explained;
     for (const key of Object.keys(drivers)) drivers[key] *= scale;
@@ -98,4 +112,4 @@ function analyze({ requests, tools = [], cacheMinutes = 5, helperCost = 0, total
   return { facts, drivers: { ...drivers, work: round(Math.max(0, total - explained)) } };
 }
 
-module.exports = { analyze, commandKind };
+module.exports = { analyze, commandKind, LONG_STEP_TOKENS };

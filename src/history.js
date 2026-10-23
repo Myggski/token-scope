@@ -102,7 +102,7 @@ function claudeTimeline(lines, models, skip = new Set()) {
         else pause = { ms: t - prev.t, who: "unknown", kind: null };
       }
       requests.push({
-        t, model: priced, pause,
+        t, model: priced, name: m.model, pause,
         context: usage.input + usage.cacheRead + usage.write5m + usage.write1h,
         fresh: usage.input + usage.write5m + usage.write1h, cached: usage.cacheRead, output: usage.output,
         cost: priced ? usageCost(priced, usage) : 0,
@@ -327,6 +327,7 @@ function openCodeMessage(row, data) {
     model: model || "unknown",
     time: typeof created === "number" ? created : Date.parse(created),
     done: data.time && typeof data.time.completed === "number" ? data.time.completed : null, // when the reply was finished
+    agent: data.agent || data.mode || null, // which OpenCode agent replied (build, plan, ...)
     cwd: (data.path && (data.path.cwd || data.path.root)) || null,
     hasTokens: !!t && typeof t === "object",
     tokens: { input: (t && t.input) || 0, output: ((t && t.output) || 0) + ((t && t.reasoning) || 0), read: cache.read || 0, write: cache.write || 0 },
@@ -723,7 +724,7 @@ async function readOpenCode(models, since, { folder, checks = NO_CHECKS, savedOw
       const p = findPricedModel(models, m.model);
       const usage = { requests: 1, input: m.tokens.input, cacheRead: m.tokens.read, write5m: m.tokens.write, write1h: 0, output: m.tokens.output };
       return {
-        t: m.time, model: p, pause: pauses[i],
+        t: m.time, model: p, name: m.model, agent: m.agent, pause: pauses[i],
         context: m.tokens.input + m.tokens.read + m.tokens.write, fresh: m.tokens.input + m.tokens.write, cached: m.tokens.read,
         output: m.tokens.output, cost: p ? usageCost(p, usage) : m.cost || 0,
       };
@@ -1166,7 +1167,7 @@ function readCursor(models, since, { folder, checks = NO_CHECKS, cacheHit = CURS
         else pause = { ms: t - prev.t, who: "unknown", kind: null };
       }
       const usage = cursorParts(part, cacheHit);
-      requests.push({ t, model: p, pause, context: part.context, fresh: usage.input + usage.write5m, cached: usage.cacheRead, output: part.output, cost: p ? usageCost(p, usage) : 0 });
+      requests.push({ t, model: p, name: part.model, pause, context: part.context, fresh: usage.input + usage.write5m, cached: usage.cacheRead, output: part.output, cost: p ? usageCost(p, usage) : 0 });
     }, { startContext: startOffset(records), anchors: anchorsOf(info.get(id)) });
     // Helper agents: their own context, replayed separately, added to this conversation's cost.
     let helperCost = 0, end = records[records.length - 1].t;

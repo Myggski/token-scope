@@ -17,7 +17,7 @@ const INFO_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 17h2
 // Comparison's monthly cost until you set your own (USD).
 const DEFAULT_MONTHLY_COST = 6500;
 
-// The tabs you can move and hide (Settings & help is always last, so you can always get back).
+// The tabs you can move and hide (Settings and Help are always last, so you can always get back).
 const TABS = [
   { id: "models", name: "Models", note: "Prices and capability scores for AI models." },
   { id: "jobs", name: "Plans", note: "What your AI estimated a task would cost, next to what it really cost." },
@@ -26,8 +26,9 @@ const TABS = [
 ];
 // Comparison starts hidden: turn it on under Tabs.
 const DEFAULT_TABS = { order: TABS.map((t) => t.id), hidden: ["compare"] };
-// The tabs shown, in order, then Settings & help.
-const visibleViews = () => [...state.tabs.order.filter((v) => !state.tabs.hidden.includes(v)), "help"];
+// The tabs shown, in order, then Settings and Help.
+const FIXED_VIEWS = ["settings", "help"]; // always shown, always last
+const visibleViews = () => [...state.tabs.order.filter((v) => !state.tabs.hidden.includes(v)), ...FIXED_VIEWS];
 const PAGE = 20; // models shown at first, and added by each "Show more"
 const PAGE_SMALL = 5; // rows shown at first in a Details list (subagents)
 
@@ -53,6 +54,7 @@ const state = {
   compareModels: null, // models a conversation is re-priced on in Spending; null = your favorites
   historyShown: PAGE,
   historyByProject: false, // Spending grouped by project (remembered)
+  patternsOpen: false, // Spending's Patterns row is open (this session)
   openProjects: new Set(), // projects whose conversations are shown
   projectShown: new Map(), // project -> how many of its conversations are shown
   comparePicked: new Set(), // Comparison: the conversations picked (ids), for this session
@@ -457,7 +459,7 @@ function renderAll() {
 function showView(view, { animate = false } = {}) {
   if (!visibleViews().includes(view)) view = visibleViews()[0];
   state.view = view;
-  for (const v of [...TABS.map((t) => t.id), "help"]) {
+  for (const v of [...TABS.map((t) => t.id), ...FIXED_VIEWS]) {
     $(`view-${v}`).hidden = v !== view;
     $(`tab-${v}`).setAttribute("aria-selected", v === view);
     $(`tab-${v}`).tabIndex = v === view ? 0 : -1;
@@ -467,10 +469,10 @@ function showView(view, { animate = false } = {}) {
   if (view === "history" || view === "compare") loadHistory();
 }
 
-// Puts the tabs in your order and hides the ones you've turned off, here and in Settings & help.
+// Puts the tabs in your order and hides the ones you've turned off, here and in Settings.
 function applyTabs() {
   const nav = document.querySelector(".tabs");
-  for (const v of [...state.tabs.order, "help"]) nav.insertBefore($(`tab-${v}`), $("tabIndicator"));
+  for (const v of [...state.tabs.order, ...FIXED_VIEWS]) nav.insertBefore($(`tab-${v}`), $("tabIndicator"));
   for (const t of TABS) $(`tab-${t.id}`).hidden = state.tabs.hidden.includes(t.id);
   const arrow = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d === -1 ? "M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6z" : "M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"}"/></svg>`;
   $("tabSettings").innerHTML = state.tabs.order.map((id, i) => {
@@ -736,7 +738,7 @@ function renderNotices() {
 const TOOL_NAMES = { "claude-code": "Claude Code", codex: "Codex", opencode: "OpenCode", zed: "Zed", cursor: "Cursor" };
 const costText = (cost, approximate) => `${approximate ? "≈ " : ""}${money(cost)}`;
 
-// One switch row per AI tool. Used in Settings & help and on History before anything is on.
+// One switch row per AI tool. Used in Settings and on History before anything is on.
 // A tool that needs something done by hand shows ⚠ with what to do.
 function trackingRows(sources) {
   return sources.map((src) => `
@@ -925,11 +927,12 @@ const LIST_PARTS = [
   { key: "work", label: "The work itself" },
   { key: "you", label: "Cache expired while waiting for you" },
   { key: "tools", label: "Cache expired during builds or commands" },
+  { key: "switch", label: "Cache lost when switching model or agent" },
   { key: "other", label: "Cache expired, cause unknown" },
   { key: "outputs", label: "Large tool outputs re-read" },
   { key: "none", label: "No breakdown (the tool saves only totals)" },
 ];
-const DRIVER_KEYS = { work: "work", you: "pausesYou", tools: "pausesTools", other: "otherMisses", outputs: "bigOutputs" };
+const DRIVER_KEYS = { work: "work", you: "pausesYou", tools: "pausesTools", switch: "switches", other: "otherMisses", outputs: "bigOutputs" };
 function listDrivers(list) {
   const sums = Object.fromEntries(LIST_PARTS.map((p) => [p.key, 0]));
   for (const c of list) {
@@ -1123,6 +1126,7 @@ function driversBar(c) {
     { key: "work", label: "The work itself", value: d.work },
     { key: "you", label: "Cache expired while waiting for you", value: d.pausesYou },
     { key: "tools", label: "Cache expired during builds or commands", value: d.pausesTools },
+    { key: "switch", label: "Cache lost when switching model or agent", value: d.switches || 0 },
     { key: "other", label: "Cache expired, cause unknown", value: d.otherMisses },
     { key: "outputs", label: "Large tool outputs re-read", value: d.bigOutputs },
   ].filter((p) => p.value >= 0.005);
@@ -1323,6 +1327,54 @@ function conversationRow(c) {
     <tr class="panel-row" id="${panelId}"${open ? "" : " hidden"}><td colspan="2">${open ? conversationPanel(c) : ""}</td></tr>`;
 }
 
+// Patterns: five habits that affect what AI work costs (see patterns.js), from every conversation,
+// whatever is searched. Hidden until there's enough to show.
+// Each value is a share of what you paid, except Compactions: times per conversation, on average.
+const HABITS = [
+  { key: "cacheWhileWaiting", name: "Cache expired while waiting for you", line: "You replied after the cache ran out, so the next step read the whole conversation again at full price." },
+  { key: "cacheDuringCommands", name: "Cache expired during builds or commands", line: "A build or test ran longer than the cache lasts, so the next step read everything again at full price." },
+  { key: "switching", name: "Switching model or agent", line: "A different model or agent starts a new cache, so the next step read the whole conversation at full price." },
+  { key: "compactions", name: "Compactions", line: "On average, how many times a conversation got too long for the model and was summarized to make room.", times: true },
+  { key: "longConversations", name: "Long conversations", line: "Steps taken when the conversation was already over 100k tokens. Each step reads it all, so they cost more." },
+];
+const habitValue = (h, v) => (v === null || v === undefined ? "–" : h.times ? `${(Math.round(v * 10) / 10).toFixed(1)}×` : `${Math.round(v * 100)}%`);
+function renderPatterns(all) {
+  const box = $("historyPatterns");
+  const p = window.Patterns.patterns(all);
+  if (!p) {
+    box.hidden = true;
+    box.innerHTML = "";
+    return;
+  }
+  const appearing = box.hidden;
+  box.hidden = false;
+  const open = state.patternsOpen;
+  // One value per period, under its header: the earlier period first, then the last weeks.
+  // Like Comparison's Difference box: the value, and for times a small line saying what they're per.
+  const cell = (h, v) => `<span class="num">${escape(habitValue(h, v))}${h.times ? `<span class="sub-value">per conversation</span>` : ""}</span>`;
+  const rows = HABITS.map((h) => `<li><span class="model-label">${escape(h.name)}<span class="sub-value">${escape(h.line)}</span></span>${p.before ? cell(h, p.before[h.key]) : ""}${cell(h, p.now[h.key])}</li>`).join("");
+  const day = (t) => new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const heads = [...(p.before ? [`${day(p.periods.before[0])} – ${day(p.periods.before[1])}`] : []), p.stage === "new" ? "Last 30 days" : "Last 4 weeks"];
+  const keep = state.history.keepDays;
+  const period = p.stage === "usual" ? "The last 4 weeks next to the 8 weeks before them, together. These go up and down with the kind of work."
+    : p.stage === "previous" ? "The last 4 weeks next to the 4 weeks before them. These go up and down with the kind of work."
+    : keep > 0 && keep < 60 ? `The last 30 days. Comparisons need 2 months of history, and Keep spending history for is set to ${keep} days.`
+    : "The last 30 days. Comparisons show up when there are 2 months of history. TokenScope saves it from now on.";
+  const zed = all.some((c) => c.tool === "zed") ? " Zed isn't counted, since it only saves totals." : "";
+  const units = " Each % is a share of what you paid.";
+  box.classList.toggle("is-open", open);
+  box.innerHTML = `
+    <button class="expander-head" type="button" data-toggle-patterns aria-expanded="${open}" aria-controls="patternsBody">
+      <span class="chevron" aria-hidden="true"></span><span class="expander-title">Conversation patterns</span>
+      ${open ? `<span class="habit-period periods-${heads.length}" id="patternsPeriods">${heads.map((x) => `<span>${escape(x)}</span>`).join("")}</span>` : ""}
+    </button>
+    ${open ? `<div class="expander-body" id="patternsBody">
+      <ul class="model-rows habit-rows periods-${heads.length}">${rows}</ul>
+      <div class="patterns-foot"><p class="panel-note">${escape(period + units + zed)} <button class="link-button" type="button" data-open-help="help-patterns">What can help</button></p></div>
+    </div>` : ""}`;
+  if (appearing) replay(box, "panel-in");
+}
+
 // Spending by project: the conversations grouped by their project, last active first (the same
 // order as the conversations). Conversations without one are under "No project".
 function projectGroups(list) {
@@ -1378,6 +1430,7 @@ function animateProject(key, from) {
 function historyEmpty(row) {
   $("historyTotals").hidden = true;
   $("historyDrivers").hidden = true;
+  $("historyPatterns").hidden = true;
   $("historyRows").innerHTML = row;
   $("historyCount").textContent = "";
   $("historyMore").hidden = true;
@@ -1426,6 +1479,7 @@ function renderHistory() {
   list = searchList(list, query);
   showTotals(historyTotals(list, all));
   showListDrivers(list, all);
+  renderPatterns(all);
   const groups = state.historyByProject ? projectGroups(list) : null;
   $("historyFirstColumn").textContent = groups ? "Project" : "Conversation";
   const items = groups || list;
@@ -1608,23 +1662,23 @@ $("jobRows").addEventListener("click", async (event) => {
 document.addEventListener("click", (event) => {
   const sw = event.target.closest("[data-track]");
   if (sw && !sw.disabled) return setTracking(sw.dataset.track, sw.getAttribute("aria-checked") !== "true");
-  // "Go to Tracking" in an empty History: the Tracking switches on Settings & help.
+  // "Go to Tracking" in an empty History: the Tracking switches on Settings.
   if (event.target.closest("[data-go-tracking]")) {
-    showView("help", { animate: true });
+    showView("settings", { animate: true });
     $("trackingTitle").scrollIntoView({ behavior: "smooth", block: "start" });
     const first = document.querySelector("#trackingSources .switch:not([disabled])");
     if (first) first.focus({ preventScroll: true });
     return;
   }
-  // "Connect your AI tool" on Jobs: the setup, at the top of Settings & help.
+  // "Connect your AI tool" on Jobs: the setup, at the top of Settings.
   if (event.target.closest("[data-go-connect]")) {
-    showView("help", { animate: true });
+    showView("settings", { animate: true });
     $("connect").scrollIntoView({ behavior: "smooth", block: "start" });
     const first = document.querySelector("[data-ai-tool]");
     if (first) first.focus({ preventScroll: true });
     return;
   }
-  // "Read more" next to a ⚠ step: open that help section on Settings & help.
+  // "Read more" next to a ⚠ step, or "What can help": open that help section on Help.
   const help = event.target.closest("[data-open-help]");
   if (help) {
     showView("help", { animate: state.view !== "help" });
@@ -1690,10 +1744,10 @@ $("estimate").addEventListener("input", () => {
   state.compareEstimate = $("estimate").value;
   renderCompare();
 });
-// "Set a monthly cost": to the setting in Settings & help.
+// "Set a monthly cost": to the setting in Settings.
 document.addEventListener("click", (event) => {
   if (!event.target.closest("[data-set-monthly-cost]")) return;
-  showView("help", { animate: true });
+  showView("settings", { animate: true });
   $("monthlyCost").scrollIntoView({ block: "center" });
   $("monthlyCost").focus();
 });
@@ -1733,6 +1787,18 @@ $("monthlyCost").addEventListener("input", () => {
 $("monthlyCost").addEventListener("blur", () => {
   if (!parseNumber($("monthlyCost").value)) $("monthlyCost").value = String(state.monthlyCost);
 });
+// Patterns opens and closes.
+$("historyPatterns").addEventListener("click", (event) => {
+  if (!event.target.closest("[data-toggle-patterns]")) return;
+  state.patternsOpen = !state.patternsOpen;
+  renderPatterns(state.history ? state.history.conversations : []);
+  $("historyPatterns").querySelector("[data-toggle-patterns]").focus();
+  if (state.patternsOpen) {
+    replay($("patternsBody"), "panel-in");
+    replay($("patternsPeriods"), "fade-in"); // the dates show up smoothly in the title row
+  }
+});
+
 // Spending shows conversations or projects (a segmented button, like the Models tab's sort). Remembered.
 function applyByProject() {
   document.querySelectorAll("[data-history-view]").forEach((b) => b.setAttribute("aria-pressed", String((b.dataset.historyView === "projects") === state.historyByProject)));
@@ -1886,7 +1952,7 @@ function snackbar(text) {
   }, 4000);
 }
 
-// Which version this is, at the bottom of Settings & help, and whether a newer one is waiting.
+// Which version this is, at the bottom of Help, and whether a newer one is waiting.
 function showVersion(ready) {
   api.appVersion().then((v) => {
     $("appVersion").textContent = `TokenScope ${v}${ready ? ` · ${ready} is ready to install` : ""}`;
@@ -1929,7 +1995,7 @@ new MutationObserver(() => {
   }
 }).observe(document.body, { childList: true, subtree: true });
 
-// Tabs in Settings & help: move left or right, show or hide.
+// Tabs in Settings: move left or right, show or hide.
 $("tabSettings").addEventListener("click", (event) => {
   const move = event.target.closest("[data-tab-move]");
   const show = event.target.closest("[data-tab-show]");

@@ -29,7 +29,8 @@
       <button id="tab-jobs" class="tab" role="tab" type="button" aria-controls="view-jobs" data-view="jobs">Plans <span id="jobCount" class="tab-count"></span></button>
       <button id="tab-history" class="tab" role="tab" type="button" aria-controls="view-history" data-view="history">Spending</button>
       <button id="tab-compare" class="tab" role="tab" type="button" aria-controls="view-compare" data-view="compare">Comparison</button>
-      <button id="tab-help" class="tab" role="tab" type="button" aria-controls="view-help" data-view="help">Settings &amp; help</button>
+      <button id="tab-settings" class="tab" role="tab" type="button" aria-controls="view-settings" data-view="settings">Settings</button>
+      <button id="tab-help" class="tab" role="tab" type="button" aria-controls="view-help" data-view="help">Help</button>
       <span id="tabIndicator" class="tab-indicator" aria-hidden="true"></span>
     </nav>
 
@@ -118,6 +119,7 @@
         <p class="intro history-intro">See what every tracked AI conversation cost, whether you planned it or not. Explore your spending over time, find out what made conversations expensive, and ask your AI how to spend less.</p>
         <div id="historyTotals" class="tiles totals"></div>
         <div id="historyDrivers" class="list-drivers" hidden></div>
+        <div id="historyPatterns" class="expander patterns" hidden></div>
         <div class="control-row history-search-row">
           <div id="historyView" class="seg" role="group" aria-label="Show">
             <button type="button" data-history-view="conversations" aria-pressed="true">By conversation</button>
@@ -183,8 +185,8 @@
       </section>
     </div>
 
-    <!-- ========== Settings & help ========== -->
-    <div id="view-help" class="view" role="tabpanel" aria-labelledby="tab-help" hidden>
+    <!-- ========== Settings ========== -->
+    <div id="view-settings" class="view" role="tabpanel" aria-labelledby="tab-settings" hidden>
       <section id="connect" class="your-data" aria-labelledby="connectTitle">
         <h2 id="connectTitle">Connect your AI tool <span class="used-by">For Plans</span></h2>
         <p class="intro">Connect TokenScope to the AI tools you use. Your AI can then estimate a task before starting, and TokenScope tracks what it really costs. Set up each tool once.</p>
@@ -210,7 +212,7 @@
 
       <section class="your-data" aria-labelledby="tabsTitle">
         <h2 id="tabsTitle">Tabs</h2>
-        <p class="intro">Choose which tabs to show and in which order. TokenScope opens on the first one. Settings &amp; help is always last.</p>
+        <p class="intro">Choose which tabs to show and in which order. TokenScope opens on the first one. Settings and Help are always last.</p>
         <ul id="tabSettings" class="data-actions tab-settings"></ul>
       </section>
 
@@ -236,9 +238,12 @@
           <li><div><strong>Delete everything</strong><span>Resets TokenScope as if you had just installed it. This removes your saved data, turns off tracking and removes the Cursor hook.</span></div><button class="danger-button" type="button" data-clear="all">Delete everything</button></li>
         </ul>
       </section>
+    </div>
 
+    <!-- ========== Help ========== -->
+    <div id="view-help" class="view" role="tabpanel" aria-labelledby="tab-help" hidden>
       <section aria-labelledby="helpTitle">
-        <h2 id="helpTitle">Help</h2>
+        <h2 id="helpTitle" class="visually-hidden">Help</h2>
         <div class="help-groups">
         <details class="connect help-group" id="help-prices">
           <summary><h2>Prices and models</h2><span class="summary-hint">Where prices and scores come from, how sorting works and how to compare models</span></summary>
@@ -308,7 +313,7 @@
             <p>You can see what each conversation cost, which models it used and what contributed to the cost.</p>
             <p>Search finds conversations by name, tool, project or model, like Sonnet, Claude, GPT or ChatGPT, in any word order. While you search, the totals show what the matches cost, with everything in brackets.</p>
             <p>By project, next to the search, groups the conversations by the project they ran in, with each project's total cost. Open a project to see its conversations. Conversations without a project are under No project.</p>
-            <p>The time under a conversation's name is how long something happened in it, with breaks left out (see Break after under Settings &amp; help). For Zed it's from the first message to the last reply, with a ≈.</p>
+            <p>The time under a conversation's name is how long something happened in it, with breaks left out (see Break after under Settings). For Zed it's from the first message to the last reply, with a ≈.</p>
             <h3>What would a conversation have cost on another model?</h3>
             <p>Open a conversation's Details. Under On other models, TokenScope prices the same tokens on your favorite models, or on models you add there, and shows how much cheaper or more expensive each would have been.</p>
             <p>It's a rough comparison: another model would also work differently and take a different number of steps.</p>
@@ -336,6 +341,70 @@
             <p>TokenScope also reads each chat's name and size from Cursor's own data on your computer, without changing it. It reads nothing else from there.</p>
           </div>
         </details>
+        <details class="connect help-group" id="help-patterns">
+          <summary><h2>Conversation patterns</h2><span class="summary-hint">Five habits that affect your AI costs, and what can help</span></summary>
+          <div class="notes help-body">
+            <h3>Understanding conversation patterns</h3>
+            <p>Conversation patterns highlights five habits that affect your AI costs. The numbers show what happened, not how well or poorly you did. They change depending on the work you do, so a month with bigger tasks isn't necessarily a step backwards.</p>
+            <h3>What data is included?</h3>
+            <p>Conversation patterns counts conversations from Claude Code, OpenCode and Codex. Cursor data is approximate. Zed only saves a total cost per conversation, so it isn't included.</p>
+            <p>The cost bar in Spending covers every conversation in the list, while Conversation patterns splits them into two periods. So their numbers differ.</p>
+            <h3>When do comparisons become available?</h3>
+            <p>With less than two months of history, Conversation patterns shows your last 30 days without a comparison. TokenScope starts saving history when you install it, so comparisons become available over time. It stays hidden until you have around 10 conversations.</p>
+            <h3 id="help-pattern-cache">Cache expired while waiting for you</h3>
+            <p><strong>What it measures</strong></p>
+            <p>How much of what you paid went to continuing conversations after their cache had expired. Providers keep recent conversation context in a cache, making it cheaper to read again. Once the cache expires, the next step has to read that context at full input price.</p>
+            <p><strong>How to reduce the cost</strong></p>
+            <ul>
+              <li>Finish the current step before taking a longer break.</li>
+              <li>After a long break, consider starting a new conversation with a short summary.</li>
+              <li>Some tools, like Claude Code, support a longer cache lasting up to an hour. It costs more to write to this cache (2× instead of 1.25× the input price), so it can save money if you often pause for 5 to 60 minutes.</li>
+            </ul>
+            <h3 id="help-pattern-commands">Cache expired during builds or commands</h3>
+            <p><strong>What it measures</strong></p>
+            <p>How much of what you paid went to steps after a build, a test run or another command that took longer than the cache lasts. While the command runs, the AI waits and its cache expires, so the next step reads the whole conversation again at full price.</p>
+            <p><strong>How to reduce the cost</strong></p>
+            <ul>
+              <li>Ask the AI to make all related changes before building, so it builds once instead of after every edit.</li>
+              <li>Build only what changed, like one target or module, instead of a clean or full rebuild.</li>
+              <li>Run only the tests affected by the change, not the whole suite.</li>
+              <li>Some tools, like Claude Code, can run a long build in the background while the AI keeps working, so the cache stays in use.</li>
+              <li>Where the tool supports a cache lasting up to an hour, it can pay off when builds often take 5 to 60 minutes.</li>
+            </ul>
+            <h3 id="help-pattern-switching">Switching model or agent</h3>
+            <p><strong>What it measures</strong></p>
+            <p>How much of what you paid went to steps right after switching to another model or, in OpenCode, another agent in the middle of a conversation. Each model keeps its own cache, and an agent sends its own instructions, so after a switch the next step reads the whole conversation at full price.</p>
+            <p>Subagents aren't counted. They run in a conversation of their own with their own cache, so they don't affect the main one.</p>
+            <p><strong>How to reduce the cost</strong></p>
+            <ul>
+              <li>Use a subagent for side tasks that need another model, like a quick search or a review. The main conversation keeps its cache.</li>
+              <li>Pick the model for the whole task when you start.</li>
+              <li>When the rest of the work needs another model, start a new conversation with a short summary instead of switching.</li>
+              <li>Switching once costs one re-read. Switching back and forth is what adds up.</li>
+            </ul>
+            <h3 id="help-pattern-compactions">Compactions</h3>
+            <p><strong>What it measures</strong></p>
+            <p>On average, how many times a conversation got so long that it had to be summarized to make room for more context. 1.2× means some conversations were summarized once, some twice and some never. A conversation's Details say how many times it happened there. Compaction costs extra because the AI has to process the conversation again. The summary can also lose details, leading to more file reads later.</p>
+            <p><strong>How to reduce the cost</strong></p>
+            <ul>
+              <li>Split big tasks into smaller ones, with one conversation per task.</li>
+              <li>Start a new conversation when switching to a different task.</li>
+            </ul>
+            <h3 id="help-pattern-long">Long conversations</h3>
+            <p><strong>What it measures</strong></p>
+            <p>How much you spend on steps that read more than 100k tokens of conversation context. Each step reads the conversation again, so a step that reads 150k tokens can cost several times as much as one that reads 20k, even for the same work.</p>
+            <p>The 100k threshold is the same for every model. It measures the cost of reading large amounts of context, not how close you are to the model's context limit. Compactions track that separately.</p>
+            <p>When the cache expired on a long step, that re-read counts under its own habit, like waiting for you or a build, and not here. So no cost is counted twice, and together the habits never add up to more than what you paid.</p>
+            <p>Conversations grow through many steps or large results, like full build logs or entire files. Later steps have to read that content again.</p>
+            <p><strong>How to reduce the cost</strong></p>
+            <ul>
+              <li>Start a new conversation when the current one gets long, with a short summary of where you left off.</li>
+              <li>Ask the AI to show only the errors from a build or test run.</li>
+              <li>Ask it to read only the relevant parts of a file.</li>
+              <li>Keep one task per conversation.</li>
+            </ul>
+          </div>
+        </details>
         <details class="connect help-group" id="help-compare">
           <summary><h2>Comparison</h2><span class="summary-hint">A rough estimate of doing a task on your own compared with doing it with AI</span></summary>
           <div class="notes help-body">
@@ -344,9 +413,9 @@
             <p>No. It's a rough estimate. Only the token cost is measured. Everything else comes from estimates: your guess of the time on your own, and the monthly cost that prices your time. That's why the amounts have a ≈.</p>
             <p>Use it to get a sense of the difference, not as an exact number or for budgets.</p>
             <h3>How is it worked out?</h3>
-            <p>Estimate is how long the task would take you on your own, priced from the monthly cost under Settings &amp; help. A month counts as 160 hours of work, so a day is a twentieth of the monthly cost. A week is 40 hours and a day is 8.</p>
+            <p>Estimate is how long the task would take you on your own, priced from the monthly cost under Settings. A month counts as 160 hours of work, so a day is a twentieth of the monthly cost. A week is 40 hours and a day is 8.</p>
             <p>Using AI is your time in the conversations you picked, priced the same way, plus what their tokens cost. Your time counts on both sides, so the comparison is fair.</p>
-            <p>Your time is when something happened in those conversations: your messages, the replies and the commands the AI ran. Gaps longer than the break length under Settings &amp; help are left out, 20 minutes unless you change it. Conversations that ran at the same time count once. Zed only records when a conversation started and when it was last active, so its time counts from start to end and has a ≈.</p>
+            <p>Your time is when something happened in those conversations: your messages, the replies and the commands the AI ran. Gaps longer than the break length under Settings are left out, 20 minutes unless you change it. Conversations that ran at the same time count once. Zed only records when a conversation started and when it was last active, so its time counts from start to end and has a ≈.</p>
             <p>Difference shows how far apart the two are, and how much more or less using AI cost than the estimate. It's green when using AI cost less and red when it cost more.</p>
             <h3>What does it depend on?</h3>
             <p>Several things, like your estimate, the monthly cost, which conversations you pick and today's token prices. A small change in any of them can change the result a lot.</p>
@@ -405,6 +474,7 @@
   <script src="../src/search.js"></script>
   <script src="../src/comparison.js"></script>
   <script src="../src/activity.js"></script>
+  <script src="../src/patterns.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

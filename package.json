@@ -1,7 +1,7 @@
 {
   "name": "tokenscope",
   "productName": "TokenScope",
-  "version": "1.0.23",
+  "version": "1.0.24",
   "description": "See what your AI coding costs before and after: estimate tasks, measure what they really cost, and track spending across Claude Code, Codex, Cursor and OpenCode.",
   "keywords": [
     "ai",
@@ -28,7 +28,7 @@
   },
   "scripts": {
     "start": "electron .",
-    "test": "node src/estimate.test.js && node src/claudelogs.test.js && node src/history.test.js && node src/insights.test.js && node src/codexlogs.test.js && node src/archive.test.js && node src/opencode-wsl.test.js && node src/cursor-hook.test.js && node src/cursor-records.test.js && node src/cursordb.test.js && node src/zed.test.js && node src/mcpcopy.test.js && node src/search.test.js && node src/capability.test.js && node src/comparison.test.js && node src/activity.test.js",
+    "test": "node --check renderer/app.js && node src/estimate.test.js && node src/claudelogs.test.js && node src/history.test.js && node src/insights.test.js && node src/codexlogs.test.js && node src/archive.test.js && node src/opencode-wsl.test.js && node src/cursor-hook.test.js && node src/cursor-records.test.js && node src/cursordb.test.js && node src/zed.test.js && node src/mcpcopy.test.js && node src/search.test.js && node src/capability.test.js && node src/comparison.test.js && node src/activity.test.js && node src/patterns.test.js",
     "dist": "electron-builder --win nsis",
     "dist:portable": "electron-builder --win portable"
   },

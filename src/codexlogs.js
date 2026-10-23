@@ -396,7 +396,7 @@ function timeline(r, models, defaultTier) {
       else if (longest) pause = { ms: longest.ms, who: "tool", kind: longest.kind };
       else pause = { ms: e.t - prev.t, who: "unknown", kind: null };
     }
-    requests.push({ t: e.t, model: priced, pause, context: e.u.input, fresh: e.u.input - e.u.cached, cached: e.u.cached, output: e.u.output, cost });
+    requests.push({ t: e.t, model: priced, name: e.model, pause, context: e.u.input, fresh: e.u.input - e.u.cached, cached: e.u.cached, output: e.u.output, cost });
   }
   const after = (t) => Math.max(0, requests.filter((q) => q.t <= t).length - 1);
   const tools = r.tools.map((x) => ({ t: x.t, after: after(x.t), kind: x.kind, tool: x.tool, file: x.file, ms: x.ms, outTokens: x.outTokens }));

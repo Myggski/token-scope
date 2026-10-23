@@ -66,4 +66,31 @@ assert.ok(Object.values(a.drivers).reduce((s, v) => s + v, 0) <= 0.3 + 1e-3);
   // A small shrink (a trimmed tool output) isn't a compaction.
   assert.strictEqual(analyze({ requests: [step(100000, 5000), step(90000, 3000)], total: 0.2 }).facts.compactions, 0);
 }
+// Switching model (or agent) mid-conversation: the next step's full re-read is the switch's, even
+// after a pause. Subagents aren't in the main timeline, so they never count here.
+{
+  const m = { inPerM: 4, outPerM: 20, cachedPerM: 0.2, cacheWritePerM: null };
+  const step = (name, context, fresh, extra = {}) => ({ t: 0, model: m, name, pause: { ms: 20e3, who: "tool", kind: "other" }, context, fresh, cached: context - fresh, output: 1000, cost: 0.1, ...extra });
+  let r = analyze({ requests: [step("opus", 80000, 5000), step("opus", 85000, 5000), step("sonnet", 90000, 90000), step("sonnet", 95000, 5000)], total: 0.4 });
+  assert.strictEqual(r.facts.cacheExpiries.length, 1);
+  assert.strictEqual(r.facts.cacheExpiries[0].during, "model switch");
+  assert.ok(r.drivers.switches > 0 && r.drivers.otherMisses === 0);
+  // OpenCode: same model, another agent.
+  r = analyze({ requests: [step("opus", 80000, 5000, { agent: "build" }), step("opus", 85000, 85000, { agent: "plan", pause: { ms: 10 * 60e3, who: "you" } })], total: 0.2 });
+  assert.strictEqual(r.facts.cacheExpiries[0].during, "agent switch");
+  assert.ok(r.drivers.switches > 0 && r.drivers.pausesYou === 0);
+  // Without names (older readers), nothing is a switch.
+  r = analyze({ requests: [step(undefined, 80000, 5000), step(undefined, 85000, 85000)], total: 0.2 });
+  assert.strictEqual(r.drivers.switches, 0);
+}
+// Long conversations don't count what a cache habit already counts: a re-read on a long step is the
+// expiry's, the rest of that step is the long conversation's.
+{
+  const m = { inPerM: 4, outPerM: 20, cachedPerM: 0.2, cacheWritePerM: null };
+  const step = (context, fresh, cost, pause = { ms: 20e3, who: "tool", kind: "other" }) => ({ t: 0, model: m, name: "opus", pause, context, fresh, cached: context - fresh, output: 1000, cost });
+  const r = analyze({ requests: [step(90000, 5000, 0.1), step(120000, 5000, 0.1), step(125000, 125000, 0.6, { ms: 10 * 60e3, who: "you" })], total: 0.8 });
+  const expiry = r.facts.cacheExpiries[0].extraCostUsd;
+  assert.ok(expiry > 0);
+  assert.ok(Math.abs(r.facts.longStepsCostUsd - (0.1 + 0.6 - expiry)) < 1e-3);
+}
 console.log("insights tests passed");
